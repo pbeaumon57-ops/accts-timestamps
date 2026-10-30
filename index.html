@@ -1,0 +1,291 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>ACCTS Timestamps</title>
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="ACCTS">
+<meta name="theme-color" content="#0e1316">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="stylesheet" href="style.css">
+</head>
+<body class="app">
+<header class="top">
+  <div class="brand"><b id="teamline">ACCTS</b><span id="jobline">Not signed in</span></div>
+  <div class="clock" id="clock">--:--:--</div>
+</header>
+<main id="view"></main>
+<nav class="tabs" id="tabs" hidden>
+  <button class="tab" data-tab="job">My team</button>
+  <button class="tab" data-tab="all">All teams</button>
+  <button class="tab" data-tab="history">History</button>
+</nav>
+<div class="toast" id="toast" hidden><span id="toast-msg"></span><button id="toast-undo">Undo</button></div>
+<div class="scrim" id="scrim" hidden><div class="sheet" id="sheet" role="dialog" aria-modal="true"></div></div>
+
+<script src="vendor/firebase-app-compat.js"></script>
+<script src="vendor/firebase-auth-compat.js"></script>
+<script src="vendor/firebase-firestore-compat.js"></script>
+<script src="config.js"></script>
+<script src="common.js"></script>
+<script>
+(() => {
+  const A = window.ACCTS;
+  const { STAGES, NAME, TEAMS, pad, hm, hms, day, dur, gap } = A;
+  const { auth } = A.initFirebase();
+  const DEL = firebase.firestore.FieldValue.delete;
+  const $ = (id) => document.getElementById(id);
+
+  let device;
+  try { device = localStorage.getItem('accts.device'); if (!device) { device = 'd' + Math.random().toString(36).slice(2, 10); localStorage.setItem('accts.device', device); } }
+  catch (e) { device = 'd' + Math.random().toString(36).slice(2, 10); }
+
+  let me = null;                 // { team } once signed in
+  let view = 'job', detail = null;
+  let boards = {};               // team number -> current job (or null)
+  let pending = false;           // this phone has changes not yet sent
+  let jobs = [];                 // my team's finished jobs
+  let undoStack = [];
+  let unsub = [];
+
+  // ---------- writes (all work offline; Firestore sends them when signal returns) ----------
+  const write = (data) => A.teamDoc(me.team).set({ current: data }, { merge: true }).catch(err);
+  const err = (e) => toast('Not saved: ' + (e && e.code || e), false);
+  const cur = () => boards[me.team] || null;
+  const stamps = () => A.resolve(cur());
+
+  function tap(id) {
+    const now = Date.now(); const c = cur();
+    const data = { tap: { [id]: { [device]: now } } };
+    if (!A.isActive(c) || !c.id) { data.id = 'j' + now.toString(36); data.started = now; }
+    write(data); undoStack.push({ k: 'tap', id });
+    toast(NAME[id] + ' · ' + hm(now));
+  }
+  function correct(id, t) {
+    const c = cur(); const prev = c && c.fix && typeof c.fix[id] === 'number' ? c.fix[id] : null;
+    write({ fix: { [id]: t } }); undoStack.push({ k: 'fix', id, prev });
+    toast(NAME[id] + ' · ' + hm(t));
+  }
+  function clearStage(id) {
+    const c = cur() || {};
+    undoStack.push({ k: 'clear', id, tap: (c.tap && c.tap[id]) || null, fix: c.fix && typeof c.fix[id] === 'number' ? c.fix[id] : null });
+    write({ tap: { [id]: DEL() }, fix: { [id]: DEL() } });
+    toast(NAME[id] + ' cleared');
+  }
+  function undo() {
+    const u = undoStack.pop(); if (!u || !me) return;
+    if (u.k === 'tap') write({ tap: { [u.id]: { [device]: DEL() } } });
+    if (u.k === 'fix') write({ fix: { [u.id]: u.prev == null ? DEL() : u.prev } });
+    if (u.k === 'clear') write({ tap: { [u.id]: u.tap || DEL() }, fix: { [u.id]: u.fix == null ? DEL() : u.fix } });
+    toast('Undone', false);
+  }
+
+  // ---------- sign in ----------
+  auth.onAuthStateChanged((user) => {
+    unsub.forEach((f) => f()); unsub = []; boards = {}; jobs = []; undoStack = [];
+    const role = A.roleOf(user);
+    if (user && role && role.lead) { location.href = 'lead.html' + location.search; return; }
+    me = role && role.team ? { team: role.team } : null;
+    if (!me) { renderLogin(); return; }
+    TEAMS.forEach((t) => unsub.push(A.teamDoc(t).onSnapshot({ includeMetadataChanges: true }, (snap) => {
+      boards[t] = snap.exists ? snap.data().current || null : null;
+      if (t === me.team) pending = snap.metadata.hasPendingWrites;
+      render();
+    }, () => {})));
+    unsub.push(A.jobsCol(me.team).orderBy('finished', 'desc').limit(30).onSnapshot((q) => {
+      jobs = q.docs.map((d) => d.data()); if (view !== 'job') render();
+    }, () => {}));
+    render();
+  });
+
+  function renderLogin() {
+    $('tabs').hidden = true; $('teamline').textContent = 'ACCTS'; $('jobline').textContent = 'Not signed in';
+    let pick = null;
+    $('view').innerHTML = `<section class="section login">
+        <span class="label">Choose your team</span>
+        <div class="teampick">${TEAMS.map((t) => `<button data-pick="${t}" aria-pressed="false">${A.teamName(t)}</button>`).join('')}</div>
+        <label class="label" for="pw">Team password</label>
+        <input class="field" id="pw" type="password" autocomplete="current-password">
+        <p class="err" id="lerr"></p>
+        <button class="btn primary" id="go">Sign in</button>
+        <p class="hint">You stay signed in on this phone. Every phone signed in to the same team shares one set of times.</p>
+        <a class="btn ghost" href="lead.html${location.search}">Team lead dashboard</a>
+      </section>`;
+    $('view').querySelectorAll('[data-pick]').forEach((b) => b.onclick = () => {
+      pick = Number(b.dataset.pick);
+      $('view').querySelectorAll('[data-pick]').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+    });
+    $('go').onclick = async () => {
+      const e = $('lerr');
+      if (!pick) { e.textContent = 'Choose your team first.'; return; }
+      e.textContent = 'Signing in…';
+      try { await auth.signInWithEmailAndPassword(A.emailFor('team' + pick), $('pw').value); e.textContent = ''; }
+      catch (x) { e.textContent = /network/.test(x.code) ? 'No signal. Sign in needs a connection the first time.' : 'Wrong password for ' + A.teamName(pick) + '.'; }
+    };
+  }
+
+  // ---------- toast & sheets ----------
+  let toastTimer;
+  function toast(msg, canUndo = true) {
+    $('toast-msg').textContent = msg; $('toast-undo').hidden = !canUndo; $('toast').hidden = false;
+    clearTimeout(toastTimer); toastTimer = setTimeout(() => { $('toast').hidden = true; }, 4500);
+  }
+  $('toast-undo').onclick = () => { $('toast').hidden = true; undo(); };
+  function openSheet(html, bind) { $('sheet').innerHTML = html; $('scrim').hidden = false; bind && bind($('sheet')); }
+  function closeSheet() { $('scrim').hidden = true; $('sheet').innerHTML = ''; }
+  $('scrim').addEventListener('click', (e) => { if (e.target === $('scrim')) closeSheet(); });
+
+  function editStage(id) {
+    let draft = stamps()[id];
+    const paint = (s) => { s.querySelector('#bt').innerHTML = hms(draft) + '<small>' + day(draft) + '</small>'; s.querySelector('#ti').value = hm(draft); };
+    openSheet(`<h2>${NAME[id]}</h2>
+      <div class="bigtime" id="bt"></div>
+      <div class="nudge">
+        <button class="btn" data-n="-5">−5 min</button><button class="btn" data-n="-1">−1 min</button>
+        <button class="btn" data-n="1">+1 min</button><button class="btn" data-n="5">+5 min</button>
+      </div>
+      <input type="time" id="ti" aria-label="Set time">
+      <div class="actions">
+        <button class="btn" id="now">Set to now</button>
+        <button class="btn danger" id="clr">Clear time</button>
+        <button class="btn ghost" id="cancel">Cancel</button>
+        <button class="btn primary" id="ok">Save</button>
+      </div>`, (s) => {
+      paint(s);
+      s.querySelectorAll('[data-n]').forEach((b) => b.onclick = () => { draft += Number(b.dataset.n) * 60000; paint(s); });
+      s.querySelector('#ti').onchange = (e) => {
+        const [h, m] = e.target.value.split(':').map(Number); if (isNaN(h)) return;
+        const d = new Date(draft); d.setHours(h, m, 0, 0); draft = d.getTime(); paint(s);
+      };
+      s.querySelector('#now').onclick = () => { draft = Date.now(); paint(s); };
+      s.querySelector('#clr').onclick = () => { closeSheet(); clearStage(id); };
+      s.querySelector('#cancel').onclick = closeSheet;
+      s.querySelector('#ok').onclick = () => { closeSheet(); if (draft !== stamps()[id]) correct(id, draft); };
+    });
+  }
+  function confirmFinish() {
+    const c = cur(); if (!A.isActive(c)) return;
+    openSheet(`<h2>Finish this job?</h2>
+      <p class="hint">The times move to History for every phone in ${A.teamName(me.team)}, and the board clears for the next job.</p>
+      <div class="actions"><button class="btn ghost" id="cancel">Cancel</button><button class="btn primary" id="fin">Finish job</button></div>`, (s) => {
+      s.querySelector('#cancel').onclick = closeSheet;
+      s.querySelector('#fin').onclick = () => { closeSheet(); undoStack = []; A.finishJob(me.team, c, 'team' + me.team).catch(err); toast('Job finished', false); };
+    });
+  }
+  function confirmSignOut() {
+    openSheet(`<h2>Sign out of ${A.teamName(me.team)}?</h2>
+      <p class="hint">You'll need the team password to sign back in, and a signal to do it.</p>
+      <div class="actions"><button class="btn ghost" id="cancel">Cancel</button><button class="btn danger" id="out">Sign out</button></div>`, (s) => {
+      s.querySelector('#cancel').onclick = closeSheet;
+      s.querySelector('#out').onclick = () => { closeSheet(); auth.signOut(); };
+    });
+  }
+
+  // ---------- views ----------
+  function stageRows(st, interactive) {
+    const nxt = interactive ? A.nextStage(st) : null; let prev = null;
+    return STAGES.map(([id, name], i) => {
+      const t = st[id]; const cls = t != null ? 'done' : id === nxt ? 'next' : 'todo';
+      let when = '';
+      if (t != null) { when = hm(t) + '<small>' + (prev != null ? gap(t - prev) : '&nbsp;') + '</small>'; prev = t; }
+      else if (cls === 'next') when = 'Tap to record';
+      const tag = interactive ? 'button' : 'div';
+      return `<${tag} class="stage ${cls}" data-stage="${id}"><span class="num">${pad(i + 1)}</span><span class="name">${name}</span><span class="when">${when}</span></${tag}>`;
+    }).join('');
+  }
+  const ivBlock = (st) => { const iv = A.intervals(st); return iv.length ? `<section class="section"><span class="label">Intervals</span>
+      <div class="intervals">${iv.map(([l, ms]) => `<div>${l}</div><div class="dur">${dur(ms)}</div>`).join('')}</div></section>` : ''; };
+  function syncState() {
+    if (navigator.onLine === false) return ['wait', pending ? 'No signal · saved on this phone, sends when signal returns' : 'No signal · times still record'];
+    if (pending) return ['wait', 'Sending…'];
+    return ['ok', 'Shared with your team'];
+  }
+
+  function renderJob() {
+    const c = cur(); const st = stamps(); const active = A.isActive(c); const [cls, txt] = syncState();
+    return `<div class="sync ${cls}" id="sync"><i></i><span>${txt}</span></div>
+      <section class="section">
+        <div class="row"><span class="label">Stages</span>
+          ${undoStack.length ? '<button class="btn ghost small" id="undo">Undo last</button>' : ''}</div>
+        ${active ? '' : '<p class="hint">Tap the first stage to start a job. Each tap records the time for the whole team. Tap a recorded stage to correct it.</p>'}
+        <div class="stages">${stageRows(st, true)}</div>
+      </section>
+      ${ivBlock(st)}
+      ${active ? '<section class="section"><button class="btn primary" id="finish">Finish job</button></section>' : ''}`;
+  }
+  function renderAll() {
+    const now = Date.now();
+    return `<section class="section"><span class="label">All teams</span><div class="teamcards">${TEAMS.map((t) => {
+      const c = boards[t]; const st = A.resolve(c); const last = A.latest(st); const active = A.isActive(c);
+      const since = last ? now - last[1] : null;
+      return `<div class="teamcard ${t === me.team ? 'mine' : ''}">
+        <b>${A.teamName(t)}${t === me.team ? ' (you)' : ''}</b><span class="chip ${active ? 'on' : ''}">${active ? 'On job' : 'Available'}</span>
+        <span class="st">${last ? NAME[last[0]] : active ? 'Job started' : 'No active job'}</span>
+        <span class="meta">${last ? 'at ' + hm(last[1]) + (st.referral != null ? ' · referral ' + hm(st.referral) : '') : '&nbsp;'}</span>
+        <span class="since ${since > 3600000 ? 'stale' : ''}">${last ? dur(since) + ' ago' : ''}</span>
+      </div>`;
+    }).join('')}</div></section>`;
+  }
+  function renderHistory() {
+    const list = jobs.length ? `<div class="jobs">${jobs.map((j) => {
+      const s = j.stamps || {}; const v = Object.values(s); const a = v.length ? Math.min(...v) : j.started; const b = v.length ? Math.max(...v) : j.finished;
+      return `<button class="job" data-job="${j.id}"><b>${day(a)} · ${hm(a)}</b><span class="dur">${dur(b - a)}</span><span>${hm(a)}–${hm(b)} · ${v.length} times</span><span></span></button>`;
+    }).join('')}</div>` : '<div class="empty">Finished jobs for your team appear here.</div>';
+    return `<section class="section"><span class="label">${A.teamName(me.team)} · finished jobs</span>${list}</section>
+      <section class="section"><button class="btn ghost" id="signout">Sign out of ${A.teamName(me.team)}</button></section>`;
+  }
+  function renderDetail() {
+    const j = jobs.find((x) => x.id === detail); if (!j) { view = 'history'; return renderHistory(); }
+    const st = j.stamps || {}; let prev = null;
+    const rows = STAGES.filter(([id]) => st[id] != null).map(([id, name]) => {
+      const t = st[id]; const r = `<div class="stage done"><span class="num">${hm(t)}</span><span class="name">${name}</span><span class="when"><small>${prev != null ? gap(t - prev) : ''}</small></span></div>`; prev = t; return r;
+    }).join('');
+    return `<section class="section"><div class="row"><span class="label">${day(j.started)} · job started ${hm(j.started)}</span>
+      <button class="btn ghost small" id="back">Back</button></div><div class="stages">${rows || '<div class="empty">No times</div>'}</div></section>${ivBlock(st)}`;
+  }
+
+  function render() {
+    if (!me) return;
+    $('tabs').hidden = false;
+    const v = $('view');
+    v.innerHTML = view === 'job' ? renderJob() : view === 'all' ? renderAll() : view === 'detail' ? renderDetail() : renderHistory();
+    document.querySelectorAll('[data-tab]').forEach((b) => b.setAttribute('aria-current', (b.dataset.tab === view || (view === 'detail' && b.dataset.tab === 'history')) ? 'page' : 'false'));
+    tick();
+    v.querySelectorAll('button[data-stage]').forEach((b) => b.onclick = () => {
+      const id = b.dataset.stage; if (stamps()[id] != null) editStage(id); else tap(id);
+    });
+    v.querySelectorAll('[data-job]').forEach((b) => b.onclick = () => { view = 'detail'; detail = b.dataset.job; render(); scrollTo(0, 0); });
+    const on = (id, fn) => { const el = v.querySelector('#' + id); if (el) el.onclick = fn; };
+    on('undo', undo); on('finish', confirmFinish); on('signout', confirmSignOut);
+    on('back', () => { view = 'history'; render(); });
+  }
+  document.querySelectorAll('[data-tab]').forEach((b) => b.onclick = () => { view = b.dataset.tab; render(); scrollTo(0, 0); });
+  window.addEventListener('online', render); window.addEventListener('offline', render);
+
+  function tick() {
+    const now = Date.now(); $('clock').textContent = hms(now);
+    if (!me) return;
+    $('teamline').textContent = 'ACCTS · ' + A.teamName(me.team);
+    const c = cur(); const st = stamps();
+    $('jobline').textContent = A.isActive(c) ? 'On job · running ' + dur(now - A.jobStart(st, c)) : 'No active job';
+  }
+  setInterval(tick, 1000); tick();
+  setInterval(() => { if (me && view === 'all') render(); }, 30000);
+
+  // Keep the screen on during a job where the phone allows it.
+  let lock = null;
+  async function keepAwake() {
+    try { if (me && A.isActive(cur()) && !lock && 'wakeLock' in navigator && document.visibilityState === 'visible') {
+      lock = await navigator.wakeLock.request('screen'); lock.addEventListener('release', () => { lock = null; }); } } catch (e) {}
+  }
+  document.addEventListener('visibilitychange', keepAwake); setInterval(keepAwake, 15000);
+
+  if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
+})();
+</script>
+</body>
+</html>

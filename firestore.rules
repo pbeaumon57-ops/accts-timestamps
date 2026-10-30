@@ -1,0 +1,22 @@
+rules_version = '2';
+// Paste this into Firebase console → Firestore Database → Rules, then Publish.
+// The domain below must match accountDomain in config.js.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() { return request.auth != null && request.auth.token.email is string; }
+    function isLead() { return signedIn() && request.auth.token.email == 'lead@5beaumonts.com'; }
+    function isTeam(t) { return signedIn() && request.auth.token.email == 'team' + t + '@5beaumonts.com'; }
+    function isMember() { return isLead() || (signedIn() && request.auth.token.email.matches('team[1-4]@5beaumonts[.]com')); }
+
+    match /teams/{t} {
+      allow read: if isMember();
+      allow write: if isTeam(t) || isLead();
+
+      match /jobs/{j} {
+        allow read: if isTeam(t) || isLead();
+        allow create: if isTeam(t) || isLead();
+        allow update, delete: if isLead();
+      }
+    }
+  }
+}
