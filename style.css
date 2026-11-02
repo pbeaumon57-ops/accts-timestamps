@@ -157,3 +157,21 @@ button.stage:active { transform: scale(.985); }
 .teampick button[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); border-color: transparent; }
 .err { color: var(--danger); font-size: 14px; margin: 0; min-height: 1.2em; }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } button.stage:active { transform: none; } }
+
+/* New-job alarm banner and shift sign-on */
+.alarm { display: flex; flex-direction: column; gap: 4px; width: 100%; padding: 18px; border-radius: 14px; text-align: left; border: 0;
+  background: var(--danger); color: #fff; }
+.alarm b { font-size: 26px; letter-spacing: .04em; }
+.alarm span { font-size: 16px; font-weight: 600; }
+button.alarm { min-height: 110px; animation: alarmpulse 1s ease-in-out infinite alternate; }
+@keyframes alarmpulse { from { filter: brightness(1); } to { filter: brightness(1.25); } }
+.alarm.wait { background: color-mix(in srgb, var(--warn) 22%, var(--surface)); color: var(--fg); border: 1px solid var(--warn); }
+.alarm.ok { background: color-mix(in srgb, var(--done) 18%, var(--surface)); color: var(--fg); border: 1px solid var(--done); }
+.alarm.wait b, .alarm.ok b { font-size: 18px; letter-spacing: 0; }
+.shifts { display: flex; flex-direction: column; gap: 8px; }
+.shiftbtn { display: flex; flex-direction: column; gap: 2px; width: 100%; padding: 14px 16px; min-height: 68px; text-align: left;
+  border-radius: 12px; border: 1px solid var(--line); background: var(--accent); color: var(--on-accent); }
+.shiftbtn b { font-size: 19px; }
+.shiftbtn span { font-size: 14px; font-weight: 600; }
+.shiftbtn.off { background: var(--surface); color: var(--muted); }
+@media (prefers-reduced-motion: reduce) { button.alarm { animation: none; } }

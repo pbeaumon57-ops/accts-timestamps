@@ -1,22 +1,69 @@
 rules_version = '2';
-// Paste this into Firebase console → Firestore Database → Rules, then Publish.
-// The domain below must match accountDomain in config.js.
+// Published automatically by the GitHub deploy (or paste into Firebase console → Firestore → Rules).
+// The lead address must match accountDomain in config.js. The team list must match config.js and functions/teams.js.
 service cloud.firestore {
   match /databases/{database}/documents {
-    function signedIn() { return request.auth != null && request.auth.token.email is string; }
+    function signedIn() { return request.auth != null; }
     function isLead() { return signedIn() && request.auth.token.email == 'lead@5beaumonts.com'; }
-    function isTeam(t) { return signedIn() && request.auth.token.email == 'team' + t + '@5beaumonts.com'; }
-    function isMember() { return isLead() || (signedIn() && request.auth.token.email.matches('team[1-4]@5beaumonts[.]com')); }
+    function isStaff() { return signedIn() && exists(/databases/$(database)/documents/devices/$(request.auth.uid)); }
+    function teamIds() { return ['d0820', 'd1022a', 'd1022b', 'd1022c', 'n2008']; }
+    function now() { return request.time.toMillis(); }
+    function myDuty() { return get(/databases/$(database)/documents/duty/$(request.auth.uid)).data; }
+    // On duty for team t, or finishing a job up to 6 hours after the shift ended.
+    function onTeam(t) {
+      return isStaff() && exists(/databases/$(database)/documents/duty/$(request.auth.uid))
+        && myDuty().team == t && myDuty().until + 21600000 > now();
+    }
 
     match /teams/{t} {
-      allow read: if isMember();
-      allow write: if isTeam(t) || isLead();
-
+      allow read: if isStaff() || isLead();
+      allow write: if t in teamIds() && (onTeam(t) || isLead());
       match /jobs/{j} {
-        allow read: if isTeam(t) || isLead();
-        allow create: if isTeam(t) || isLead();
+        allow read: if isStaff() || isLead();
+        allow create: if onTeam(t) || isLead();
         allow update, delete: if isLead();
       }
+    }
+
+    // Who is on shift. Each phone signs itself on and off; the team lead can sign anyone off.
+    match /duty/{uid} {
+      allow read: if isStaff() || isLead();
+      allow create, update: if request.auth.uid == uid && isStaff()
+        && request.resource.data.uid == uid
+        && request.resource.data.team in teamIds()
+        && request.resource.data.until is number
+        && request.resource.data.until <= now() + 15 * 3600000;
+      allow delete: if request.auth.uid == uid || isLead();
+    }
+
+    // Registered phones. Created by the server after the join code is checked.
+    match /devices/{uid} {
+      allow read: if request.auth.uid == uid || isLead();
+      allow update: if request.auth.uid == uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'pushId']);
+      allow delete: if request.auth.uid == uid || isLead();
+    }
+
+    // New-job alarms. The team lead raises or cancels them; each alerted person can acknowledge for themselves.
+    match /alerts/{a} {
+      allow read: if isStaff() || isLead();
+      allow create: if isLead() && request.resource.data.team in teamIds() && request.resource.data.status == 'new';
+      allow update: if (isLead() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'cancelledAt'])
+                        && request.resource.data.status == 'cancelled')
+        || (isStaff() && request.auth.uid in resource.data.targets
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['acks'])
+            && request.resource.data.acks.diff(resource.data.get('acks', {})).affectedKeys().hasOnly([request.auth.uid]));
+      match /private/{doc} { allow read, write: if false; }
+    }
+
+    // Join code and Pushsafer key. Only the team lead can set them; nobody can read them back.
+    match /private/{doc} {
+      allow read: if false;
+      allow write: if isLead();
+    }
+    // Non-secret settings summary shown on the dashboard (e.g. "Pushsafer key set").
+    match /settings/{doc} {
+      allow read, write: if isLead();
     }
   }
 }

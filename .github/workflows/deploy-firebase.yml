@@ -1,0 +1,32 @@
+# Deploys the server functions and database rules to Firebase whenever they change on main.
+# Needs: repository secret FIREBASE_SERVICE_ACCOUNT (JSON key) and repository variable FIREBASE_PROJECT_ID. See SETUP.md.
+name: Deploy Firebase
+on:
+  push:
+    branches: [main]
+    paths: ['functions/**', 'firestore.rules', 'firestore.indexes.json', 'firebase.json', '.github/workflows/deploy-firebase.yml']
+  workflow_dispatch:
+concurrency: { group: firebase-deploy, cancel-in-progress: false }
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check setup
+        id: check
+        env: { SA: '${{ secrets.FIREBASE_SERVICE_ACCOUNT }}', PROJECT: '${{ vars.FIREBASE_PROJECT_ID }}' }
+        run: |
+          if [ -z "$SA" ] || [ -z "$PROJECT" ]; then echo "::notice::Firebase not set up yet (see SETUP.md). Skipping deploy."; echo "ready=no" >> "$GITHUB_OUTPUT"; else echo "ready=yes" >> "$GITHUB_OUTPUT"; fi
+      - uses: actions/checkout@v4
+        if: steps.check.outputs.ready == 'yes'
+      - uses: actions/setup-node@v4
+        if: steps.check.outputs.ready == 'yes'
+        with: { node-version: '22' }
+      - name: Install function packages
+        if: steps.check.outputs.ready == 'yes'
+        run: npm ci --prefix functions
+      - uses: google-github-actions/auth@v2
+        if: steps.check.outputs.ready == 'yes'
+        with: { credentials_json: '${{ secrets.FIREBASE_SERVICE_ACCOUNT }}' }
+      - name: Deploy functions and database rules
+        if: steps.check.outputs.ready == 'yes'
+        run: npx --yes firebase-tools@15.34.2 deploy --only functions,firestore --project "${{ vars.FIREBASE_PROJECT_ID }}" --non-interactive --force

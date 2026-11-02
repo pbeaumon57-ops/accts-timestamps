@@ -8,7 +8,7 @@
 <link rel="icon" href="icon-192.png">
 <link rel="stylesheet" href="style.css">
 <style>
-  /* Layout: four equal team columns on a desk screen, two on a tablet, one on a phone. Recent jobs table below. */
+  /* Layout: alarm and alert controls on top, up to four team columns on a desk screen (two on a tablet, one on a phone), then recent jobs and settings. */
   main.board { max-width: 1600px; padding-block: 18px 40px; }
   .grid { display: grid; gap: 14px; grid-template-columns: 1fr; }
   @media (min-width: 720px) { .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
@@ -16,13 +16,27 @@
   .panel { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 14px; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
   .panel.on { border-color: color-mix(in srgb, var(--done) 45%, var(--line)); }
   .panel.stale { border-color: color-mix(in srgb, var(--warn) 70%, var(--line)); }
+  .panel.red { border-color: var(--danger); box-shadow: 0 0 0 2px color-mix(in srgb, var(--danger) 40%, transparent); }
   .ph { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
   .ph h2 { margin: 0; font-size: 18px; }
+  .ph small { color: var(--muted); font-weight: 500; font-size: 13px; }
+  .crew { display: flex; flex-direction: column; gap: 4px; font-size: 14px; }
+  .crew div { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+  .crew .x { border: 0; background: transparent; color: var(--muted); font-size: 13px; padding: 4px 6px; border-radius: 6px; }
+  .crew .x:hover { color: var(--danger); }
+  .crew .none { color: var(--danger); font-weight: 600; }
   .now { display: flex; flex-direction: column; gap: 2px; padding: 12px; border-radius: 10px; background: var(--raise); }
   .now b { font-size: 20px; line-height: 1.2; text-wrap: balance; }
   .now span { color: var(--muted); font-size: 14px; }
   .now .big { font-family: var(--mono); font-size: 28px; font-weight: 700; color: var(--fg); }
   .now .big.stale { color: var(--warn); }
+  .newjob { min-height: 56px; font-size: 18px; font-weight: 800; letter-spacing: .02em; }
+  .alm { padding: 12px; border-radius: 10px; display: flex; flex-direction: column; gap: 4px; font-size: 14px; border: 1px solid var(--line); }
+  .alm b { font-size: 16px; }
+  .alm.active { background: color-mix(in srgb, var(--warn) 16%, var(--surface)); border-color: color-mix(in srgb, var(--warn) 55%, var(--line)); }
+  .alm.red { background: color-mix(in srgb, var(--danger) 18%, var(--surface)); border-color: var(--danger); }
+  .alm.ok { background: color-mix(in srgb, var(--done) 16%, var(--surface)); border-color: color-mix(in srgb, var(--done) 50%, var(--line)); }
+  .alm .err { min-height: 0; }
   table { width: 100%; border-collapse: collapse; font-size: 14px; }
   td, th { padding: 6px 4px; border-top: 1px solid var(--line); text-align: left; vertical-align: top; }
   th { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); font-weight: 600; border-top: 0; }
@@ -30,28 +44,32 @@
   td.g { font-family: var(--mono); color: var(--muted); text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; width: 4.5em; }
   tr.todo td { color: var(--muted); }
   tr.todo td.t { font-weight: 400; }
+  tr.fresh td { background: color-mix(in srgb, var(--accent) 22%, transparent); }
+  tr.fresh td:first-child { font-weight: 700; }
   .ivs { display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; font-size: 14px; }
   .ivs .dur { font-family: var(--mono); font-weight: 600; text-align: right; }
   .tablewrap { overflow-x: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 6px 14px; }
   .tablewrap table { min-width: 720px; }
   .tablewrap td { padding: 9px 6px; }
   .confirm { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
-  .login { margin: 0 auto; }
   .alertbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
   .alertbar .hint { margin-right: auto; }
   .unlock { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; padding: 12px 14px; border-radius: 12px;
     background: color-mix(in srgb, var(--accent) 18%, var(--surface)); border: 1px solid color-mix(in srgb, var(--accent) 50%, var(--line)); font-weight: 600; }
   .feed { display: flex; flex-direction: column; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; }
-  .feed div { display: grid; grid-template-columns: 4.2em 6.5em 1fr; gap: 10px; padding: 8px 14px; border-top: 1px solid var(--line); font-size: 14px; }
+  .feed div { display: grid; grid-template-columns: 4.2em 7.5em 1fr; gap: 10px; padding: 8px 14px; border-top: 1px solid var(--line); font-size: 14px; }
   .feed div:first-child { border-top: 0; }
   .feed time { font-family: var(--mono); color: var(--muted); }
-  .feed b { font-weight: 700; }
   .feed .new { background: color-mix(in srgb, var(--accent) 14%, transparent); }
-  tr.fresh td { background: color-mix(in srgb, var(--accent) 22%, transparent); }
-  tr.fresh td:first-child { font-weight: 700; }
   .panel.ping { animation: ping 1.2s ease-out 3; }
   @keyframes ping { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 70%, transparent); } 100% { box-shadow: 0 0 0 14px transparent; } }
   @media (prefers-reduced-motion: reduce) { .panel.ping { animation: none; outline: 3px solid var(--accent); } }
+  details.settings { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 4px 14px; }
+  details.settings summary { cursor: pointer; padding: 10px 0; font-weight: 700; }
+  .setgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; padding-block: 6px 16px; }
+  .setgrid > div { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+  .devs td .btn { margin-left: 4px; }
+  .login { margin: 0 auto; }
 </style>
 </head>
 <body>
@@ -67,26 +85,67 @@
 <script src="vendor/firebase-app-compat.js"></script>
 <script src="vendor/firebase-auth-compat.js"></script>
 <script src="vendor/firebase-firestore-compat.js"></script>
+<script src="vendor/firebase-functions-compat.js"></script>
 <script src="config.js"></script>
 <script src="common.js"></script>
 <script>
 (() => {
   const A = window.ACCTS;
-  const { STAGES, NAME, TEAMS, hm, hms, day, dur, gap } = A;
-  const { auth } = A.initFirebase();
+  const { STAGES, NAME, TEAMS, hm, hms, day, dur, gap, esc } = A;
+  const { auth, db } = A.initFirebase();
   const $ = (id) => document.getElementById(id);
-  const STALE = 60 * 60000; // flag a team with no new time for an hour
+  const STALE = 60 * 60000;
+  const RED = (A.CFG.alertRedAfterMin || 3) * 60000;
 
-  let lead = false, boards = {}, jobsBy = {}, unsub = [], confirmT = null, fresh = {};
+  let lead = false, boards = {}, jobsBy = {}, duty = [], devices = [], alerts = [], pub = {};
+  let unsub = [], confirmT = null, confirmJob = null, fresh = {}, settingsOpen = false, msg = {};
 
-  // ---------- alerts: sound, desktop pop-up, panel flash, tab count ----------
+  auth.onAuthStateChanged((user) => {
+    unsub.forEach((f) => f()); unsub = []; boards = {}; jobsBy = {}; seen = {}; feed = [];
+    lead = A.isLead(user);
+    $('signout').hidden = !user;
+    if (!lead) { renderLogin(user ? 'This dashboard needs the team lead sign-in.' : ''); return; }
+    $('sub').textContent = 'Signed in as team lead';
+    TEAMS.forEach(({ id: t }) => {
+      unsub.push(A.teamDoc(t).onSnapshot((s) => { boards[t] = s.exists ? s.data().current || null : null; fresh[t] = true; check(t, boards[t]); render(); }, () => {}));
+      unsub.push(A.jobsCol(t).orderBy('finished', 'desc').limit(20).onSnapshot((q) => { jobsBy[t] = q.docs.map((d) => d.data()); render(); }, () => {}));
+    });
+    unsub.push(A.dutyCol().onSnapshot((q) => { duty = q.docs.map((d) => d.data()); render(); }, () => {}));
+    unsub.push(db.collection('devices').onSnapshot((q) => { devices = q.docs.map((d) => ({ uid: d.id, ...d.data() })); render(); }, () => {}));
+    unsub.push(A.alertsCol().where('createdAt', '>', Date.now() - 12 * 3600000).onSnapshot((q) => {
+      const next = q.docs.map((d) => ({ id: d.id, ...d.data() }));
+      next.forEach((a) => { const old = alerts.find((x) => x.id === a.id); if (old) ackCheck(old, a); });
+      alerts = next.sort((a, b) => b.createdAt - a.createdAt); render();
+    }, () => {}));
+    unsub.push(db.collection('settings').doc('public').onSnapshot((s) => { pub = s.exists ? s.data() : {}; render(); }, () => {}));
+    render();
+  });
+  $('signout').onclick = () => auth.signOut();
+
+  function renderLogin(m) {
+    $('sub').textContent = 'Not signed in';
+    $('view').innerHTML = `<section class="section login" style="max-width:420px">
+      <span class="label">Team lead sign in</span>
+      <label class="label" for="pw">Team lead password</label>
+      <input class="field" id="pw" type="password" autocomplete="current-password">
+      <p class="err" id="lerr">${esc(m)}</p>
+      <button class="btn primary" id="go">Sign in</button>
+      <p class="hint">Shows the teams on shift, their live times, and lets you send new-job alarms.</p>
+    </section>`;
+    const go = async () => {
+      $('lerr').textContent = 'Signing in…';
+      try { await auth.signInWithEmailAndPassword(A.leadEmail(), $('pw').value); }
+      catch (x) { $('lerr').textContent = /network/.test(x.code) ? 'No connection.' : 'Wrong password.'; }
+    };
+    $('go').onclick = go; $('pw').onkeydown = (e) => { if (e.key === 'Enter') go(); };
+  }
+
+  // ---------- alerts for the team lead: chime, desktop pop-up, panel flash, tab count ----------
   const FLASH = 2 * 60000;
   let seen = {}, feed = [], flash = {}, ping = {}, unread = 0, audio = null, soundOn = true;
   try { soundOn = localStorage.getItem('accts.sound') !== 'off'; } catch (e) {}
   const canPop = () => 'Notification' in window;
-  function unlockAudio() {
-    try { if (!audio) audio = new (window.AudioContext || window.webkitAudioContext)(); if (audio.state === 'suspended') audio.resume(); } catch (e) {}
-  }
+  function unlockAudio() { try { if (!audio) audio = new (window.AudioContext || window.webkitAudioContext)(); if (audio.state === 'suspended') audio.resume(); } catch (e) {} }
   document.addEventListener('pointerdown', () => { const was = audio && audio.state === 'running'; unlockAudio(); if (!was) setTimeout(render, 50); });
   function beep() {
     if (!soundOn || !audio || audio.state !== 'running') return;
@@ -100,20 +159,26 @@
   }
   function popup(t, lines) {
     if (!canPop() || Notification.permission !== 'granted') return;
-    try {
-      const n = new Notification(A.teamName(t) + ' · ' + lines[0], { body: lines.slice(1).join('\n'), tag: 'accts-team-' + t, renotify: true, icon: 'icon-192.png' });
-      n.onclick = () => { window.focus(); n.close(); };
-    } catch (e) {}
+    try { const n = new Notification(A.teamName(t) + ' · ' + lines[0], { body: lines.slice(1).join('\n'), tag: 'accts-team-' + t, renotify: true, icon: 'icon-192.png' }); n.onclick = () => { window.focus(); n.close(); }; } catch (e) {}
   }
   function title() { document.title = (unread ? '(' + unread + ') ' : '') + 'ACCTS Team Board'; }
   document.addEventListener('visibilitychange', () => { if (!document.hidden) { unread = 0; title(); } });
   window.addEventListener('focus', () => { unread = 0; title(); });
-
-  // Compare a team's new times with what was on screen, and alert on anything new or changed.
+  const held = {}, holdTimer = {};
+  function notify(t, lines) {
+    const now = Date.now();
+    lines.forEach((text) => feed.unshift({ t, text, at: now }));
+    feed = feed.slice(0, 30); ping[t] = now;
+    if (document.hidden || !document.hasFocus()) unread += lines.length;
+    title();
+    (held[t] = held[t] || []).push(...lines);
+    clearTimeout(holdTimer[t]);
+    holdTimer[t] = setTimeout(() => { const l = held[t].splice(0); beep(); popup(t, l.length > 1 ? [l.length + ' updates', ...l] : l); }, 1500);
+  }
   function check(t, c) {
     const st = A.resolve(c), active = A.isActive(c), prev = seen[t];
     seen[t] = { st, active };
-    if (!prev) return; // first load: no alerts for times already there
+    if (!prev) return;
     const lines = [], now = Date.now();
     STAGES.forEach(([id, name]) => {
       if (st[id] != null && prev.st[id] == null) { lines.push(name + ' ' + hm(st[id])); flash[t + id] = now; }
@@ -121,17 +186,15 @@
       else if (st[id] == null && prev.st[id] != null && active) lines.push('Cleared: ' + name);
     });
     if (prev.active && !active) lines.push('Job finished');
-    if (!lines.length) return;
-    lines.forEach((text) => feed.unshift({ t, text, at: now }));
-    feed = feed.slice(0, 30); ping[t] = now;
-    if (document.hidden || !document.hasFocus()) unread += lines.length;
-    title();
-    // Times synced together from a phone that was out of signal arrive close together: give one alert for them.
-    (held[t] = held[t] || []).push(...lines);
-    clearTimeout(holdTimer[t]);
-    holdTimer[t] = setTimeout(() => { const l = held[t].splice(0); beep(); popup(t, l.length > 1 ? [l.length + ' updates', ...l] : l); }, 1500);
+    if (lines.length) notify(t, lines);
   }
-  const held = {}, holdTimer = {};
+  function ackCheck(old, a) {
+    const lines = [];
+    Object.keys(a.acks || {}).forEach((u) => { if (!(old.acks || {})[u] && a.targets && a.targets[u]) lines.push('Alarm acknowledged by ' + a.targets[u].name); });
+    if (old.status !== a.status && a.status === 'expired') lines.push('Alarm stopped: not enough responses after 15 min');
+    if (old.status !== a.status && a.status === 'no_one') lines.push('Alarm not sent: nobody on duty');
+    if (lines.length) notify(a.team, lines);
+  }
   function alertBar() {
     const audioOk = audio && audio.state === 'running';
     const perm = canPop() ? Notification.permission : 'unsupported';
@@ -139,7 +202,7 @@
       : perm === 'denied' ? '<button class="btn small ghost" disabled>Pop-ups blocked by this browser</button>'
       : perm === 'unsupported' ? '' : '<button class="btn small primary" id="popon">Turn on desktop pop-ups</button>';
     return `${soundOn && !audioOk ? '<div class="unlock"><span>Click anywhere on this page to allow sound alerts.</span><button class="btn small primary" id="unlock">Allow sound</button></div>' : ''}
-      <div class="alertbar"><span class="hint">Alerts for every new or corrected time while this page is open. It can sit in a background tab.</span>
+      <div class="alertbar"><span class="hint">You're alerted to every new time and every alarm response while this page is open. It can sit in a background tab.</span>
         <button class="btn small" id="sound">${soundOn ? 'Sound on' : 'Sound off'}</button>${pop}
         <button class="btn small ghost" id="testalert">Test alert</button></div>`;
   }
@@ -147,65 +210,71 @@
     if (!feed.length) return '';
     const now = Date.now();
     return `<section class="section"><span class="label">Latest updates</span><div class="feed">${feed.slice(0, 6).map((f) =>
-      `<div class="${now - f.at < FLASH ? 'new' : ''}"><time>${hm(f.at)}</time><b>${A.teamName(f.t)}</b><span>${f.text}</span></div>`).join('')}</div></section>`;
+      `<div class="${now - f.at < FLASH ? 'new' : ''}"><time>${hm(f.at)}</time><b>${esc(A.teamName(f.t))}</b><span>${esc(f.text)}</span></div>`).join('')}</div></section>`;
   }
 
-  auth.onAuthStateChanged((user) => {
-    unsub.forEach((f) => f()); unsub = []; boards = {}; jobsBy = {}; seen = {}; feed = [];
-    const role = A.roleOf(user);
-    lead = !!(role && role.lead);
-    $('signout').hidden = !user;
-    if (!lead) { renderLogin(user && role && role.team ? 'This dashboard needs the team lead sign-in. You are signed in as ' + A.teamName(role.team) + '.' : ''); return; }
-    $('sub').textContent = 'Signed in as team lead';
-    TEAMS.forEach((t) => {
-      unsub.push(A.teamDoc(t).onSnapshot((s) => { boards[t] = s.exists ? s.data().current || null : null; fresh[t] = true; check(t, boards[t]); render(); }, () => {}));
-      unsub.push(A.jobsCol(t).orderBy('finished', 'desc').limit(20).onSnapshot((q) => { jobsBy[t] = q.docs.map((d) => d.data()); render(); }, () => {}));
-    });
-    render();
-  });
-  $('signout').onclick = () => auth.signOut();
-
-  function renderLogin(msg) {
-    $('sub').textContent = 'Not signed in';
-    $('view').innerHTML = `<section class="section login" style="max-width:420px">
-      <span class="label">Team lead sign in</span>
-      <label class="label" for="pw">Team lead password</label>
-      <input class="field" id="pw" type="password" autocomplete="current-password">
-      <p class="err" id="lerr">${msg}</p>
-      <button class="btn primary" id="go">Sign in</button>
-      <p class="hint">Shows the live times for all four teams and their recent jobs.</p>
-    </section>`;
-    const go = async () => {
-      $('lerr').textContent = 'Signing in…';
-      try { await auth.signInWithEmailAndPassword(A.emailFor('lead'), $('pw').value); }
-      catch (x) { $('lerr').textContent = /network/.test(x.code) ? 'No connection.' : 'Wrong password.'; }
-    };
-    $('go').onclick = go; $('pw').onkeydown = (e) => { if (e.key === 'Enter') go(); };
+  // ---------- new-job alarms ----------
+  const crewOf = (t, now) => duty.filter((d) => d.team === t && A.onDuty(d, now));
+  function sendAlarm(t) {
+    A.alertsCol().add({ team: t, status: 'new', createdAt: Date.now(), createdBy: 'lead' })
+      .catch((e) => { msg[t] = 'Could not send: ' + (e.message || e.code); render(); });
+  }
+  function alarmBlock(t, now) {
+    const a = alerts.find((x) => x.team === t);
+    if (!a || now - a.createdAt > 3 * 3600000) return '';
+    const got = Object.keys(a.acks || {}).filter((u) => a.targets && a.targets[u]);
+    const names = got.map((u) => esc(a.targets[u].name) + ' ' + hm(a.acks[u])).join(', ');
+    const waiting = Object.keys(a.targets || {}).filter((u) => !(a.acks || {})[u]).map((u) => esc(a.targets[u].name)).join(', ');
+    const errs = a.errors ? Object.entries(a.errors).map(([u, e]) => `<p class="err">${esc((a.targets[u] || {}).name || 'Phone')}: ${esc(e)}</p>`).join('') : '';
+    const age = now - a.createdAt;
+    if (a.status === 'new') return `<div class="alm active"><b>Sending alarm…</b><span>Raised ${hm(a.createdAt)}</span></div>`;
+    if (a.status === 'active') {
+      const red = age > RED;
+      return `<div class="alm ${red ? 'red' : 'active'}"><b>${red ? 'Not acknowledged after ' + dur(age) + ' · phone the team' : 'Alarm ringing · sent ' + hm(a.createdAt)}</b>
+        <span>${got.length} of ${a.needed} needed have acknowledged${names ? ': ' + names : ''}</span>
+        ${waiting ? `<span>Still ringing: ${waiting} · repeats every ${a.repeatSec || 60} s</span>` : ''}${errs}
+        <div><button class="btn small ghost" data-cancel-alarm="${a.id}">Cancel alarm</button></div></div>`;
+    }
+    if (a.status === 'acknowledged') return `<div class="alm ok"><b>Acknowledged · ${dur((a.ackedAt || now) - a.createdAt)} after the alarm</b><span>${names}</span></div>`;
+    if (a.status === 'expired') return `<div class="alm red"><b>Alarm stopped after 15 min without enough responses</b><span>${names ? 'Acknowledged: ' + names : 'Nobody acknowledged'}${waiting ? ' · No response: ' + waiting : ''}</span>${errs}</div>`;
+    if (a.status === 'no_one') return `<div class="alm red"><b>Alarm not sent ${hm(a.createdAt)}</b><span>Nobody is signed on for this team.</span></div>`;
+    if (a.status === 'cancelled') return `<div class="alm"><b>Alarm cancelled ${hm(a.cancelledAt || a.createdAt)}</b>${names ? '<span>' + names + '</span>' : ''}</div>`;
+    return '';
   }
 
-  function panel(t, now) {
-    const c = boards[t]; const st = A.resolve(c); const active = A.isActive(c); const last = A.latest(st);
+  function panel(team, now) {
+    const t = team.id; const c = boards[t]; const st = A.resolve(c); const active = A.isActive(c); const last = A.latest(st);
     const since = last ? now - last[1] : null; const stale = active && since > STALE;
+    const crew = crewOf(t, now);
+    const a = alerts.find((x) => x.team === t);
+    const ringing = a && (a.status === 'active' || a.status === 'new');
+    const red = a && ((a.status === 'active' && now - a.createdAt > RED) || ((a.status === 'expired' || a.status === 'no_one') && now - a.createdAt < 30 * 60000));
     let prev = null;
     const rows = STAGES.map(([id, name]) => {
       const tm = st[id]; let g = '';
       if (tm != null) { g = prev != null ? gap(tm - prev) : ''; prev = tm; }
-      const fr = flash[t + id] && Date.now() - flash[t + id] < FLASH ? ' fresh' : '';
+      const fr = flash[t + id] && now - flash[t + id] < FLASH ? ' fresh' : '';
       return `<tr class="${tm != null ? '' : 'todo'}${fr}"><td>${name}</td><td class="t">${tm != null ? hm(tm) : '–'}</td><td class="g">${g}</td></tr>`;
     }).join('');
     const iv = A.intervals(st);
-    const nowBlock = !fresh[t] ? `<div class="now"><span>Loading…</span></div>`
+    const nowBlock = !fresh[t] ? '<div class="now"><span>Loading…</span></div>'
       : active ? `<div class="now"><span>Current stage</span><b>${last ? NAME[last[0]] : 'Job started'}</b>
           <span><span class="big ${stale ? 'stale' : ''}">${last ? dur(since) : '—'}</span>${last ? ' since ' + hm(last[1]) : ''}</span>
           <span>Job running ${dur(now - A.jobStart(st, c))}</span></div>`
-      : `<div class="now"><span>Status</span><b>Available</b><span>No active job</span></div>`;
-    const fin = !active ? '' : confirmT === t
-      ? `<div class="confirm"><span class="hint">Finish ${A.teamName(t)}'s job and clear its board?</span>
+      : '<div class="now"><span>Status</span><b>Available</b><span>No active job</span></div>';
+    const alarmBtn = ringing ? '' : confirmT === t
+      ? `<div class="confirm"><span class="hint">Sound the alarm on ${crew.length} phone${crew.length === 1 ? '' : 's'}? ${team.ackNeeded > 1 && crew.length > 1 ? team.ackNeeded + ' people must acknowledge.' : ''}</span>
+          <button class="btn primary" data-send="${t}">Sound alarm</button><button class="btn small ghost" data-cancel>Cancel</button></div>`
+      : `<button class="btn primary newjob" data-ask="${t}" ${crew.length ? '' : 'disabled'}>New job alarm</button>`;
+    const fin = !active ? '' : confirmJob === t
+      ? `<div class="confirm"><span class="hint">Finish ${esc(team.name)}'s job and clear its board?</span>
           <button class="btn small primary" data-fin="${t}">Finish job</button><button class="btn small ghost" data-cancel>Cancel</button></div>`
-      : `<button class="btn small ghost" data-ask="${t}">Finish this job for the team</button>`;
-    const pg = ping[t] && now - ping[t] < 4000 ? ' ping' : '';
-    return `<section class="panel ${stale ? 'stale' : active ? 'on' : ''}${pg}">
-      <div class="ph"><h2>${A.teamName(t)}</h2><span class="chip ${active ? 'on' : ''}">${stale ? 'No update 1h+' : active ? 'On job' : 'Available'}</span></div>
+      : `<button class="btn small ghost" data-askfin="${t}">Finish this job for the team</button>`;
+    return `<section class="panel ${red ? 'red' : stale ? 'stale' : active ? 'on' : ''}${ping[t] && now - ping[t] < 4000 ? ' ping' : ''}">
+      <div class="ph"><h2>${esc(team.name)}</h2><span class="chip ${active ? 'on' : ''}">${stale ? 'No update 1h+' : active ? 'On job' : 'Available'}</span></div>
+      <div class="crew">${crew.length ? crew.map((d) => `<div><span>${esc(d.name)} · until ${hm(d.until)}</span><button class="x" data-signoff="${d.uid}" title="Sign ${esc(d.name)} off">Sign off</button></div>`).join('') : '<div class="none">Nobody signed on</div>'}</div>
+      ${alarmBlock(t, now)}${msg[t] ? `<p class="err">${esc(msg[t])}</p>` : ''}
+      ${alarmBtn}
       ${nowBlock}
       ${active ? `<table><tbody>${rows}</tbody></table>` : ''}
       ${iv.length ? `<div><span class="label">Intervals</span><div class="ivs" style="margin-top:6px">${iv.map(([l, ms]) => `<span>${l}</span><span class="dur">${dur(ms)}</span>`).join('')}</div></div>` : ''}
@@ -214,31 +283,86 @@
   }
 
   function recent() {
-    const all = TEAMS.flatMap((t) => (jobsBy[t] || []).map((j) => ({ ...j, team: t }))).sort((a, b) => b.finished - a.finished).slice(0, 40);
+    const all = TEAMS.flatMap(({ id }) => (jobsBy[id] || []).map((j) => ({ ...j, team: id }))).sort((a, b) => b.finished - a.finished).slice(0, 40);
     if (!all.length) return '<div class="empty">Finished jobs from all teams appear here.</div>';
     const iv = (st, a, b) => (st[a] != null && st[b] != null ? dur(st[b] - st[a]) : '–');
     return `<div class="tablewrap"><table>
       <thead><tr><th>Team</th><th>Date</th><th>Referral</th><th>Mobile</th><th>At bedside</th><th>Left bedside</th><th>Arrived unit</th><th>Bedside time</th><th>Road transfer</th><th>Total</th></tr></thead>
       <tbody>${all.map((j) => { const s = j.stamps || {}; const f = (k) => (s[k] != null ? hm(s[k]) : '–');
         const v = Object.values(s); const total = v.length > 1 ? dur(Math.max(...v) - Math.min(...v)) : '–';
-        return `<tr><td>${A.teamName(j.team)}</td><td>${day(j.started || j.finished)}</td><td class="t">${f('referral')}</td><td class="t">${f('mobile')}</td><td class="t">${f('bedside')}</td><td class="t">${f('left_bed')}</td><td class="t">${f('arr_unit')}</td><td class="t">${iv(s, 'bedside', 'left_bed')}</td><td class="t">${iv(s, 'dep_send', 'arr_recv')}</td><td class="t">${total}</td></tr>`;
+        return `<tr><td>${esc(A.teamName(j.team))}</td><td>${day(j.started || j.finished)}</td><td class="t">${f('referral')}</td><td class="t">${f('mobile')}</td><td class="t">${f('bedside')}</td><td class="t">${f('left_bed')}</td><td class="t">${f('arr_unit')}</td><td class="t">${iv(s, 'bedside', 'left_bed')}</td><td class="t">${iv(s, 'dep_send', 'arr_recv')}</td><td class="t">${total}</td></tr>`;
       }).join('')}</tbody></table></div>`;
+  }
+
+  function settingsBlock() {
+    const now = Date.now();
+    const devRows = devices.sort((a, b) => a.name.localeCompare(b.name)).map((d) => {
+      const on = duty.find((x) => x.uid === d.uid && A.onDuty(x, now));
+      return `<tr><td>${esc(d.name)}</td><td class="mono">${d.pushId ? esc(d.pushId) : '<span class="stale">not set</span>'}</td><td>${on ? esc(A.teamName(on.team)) + ' until ' + hm(on.until) : 'Off duty'}</td>
+        <td style="text-align:right;white-space:nowrap"><button class="btn small ghost" data-testdev="${d.uid}">Test alarm</button><button class="btn small ghost" data-rmdev="${d.uid}">Remove</button></td></tr>`;
+    }).join('');
+    return `<details class="settings" id="settings" ${settingsOpen ? 'open' : ''}><summary>Settings and registered phones</summary>
+      <div class="setgrid">
+        <div><label class="label" for="jc">Join code for new phones</label>
+          <input class="field" id="jc" autocomplete="off" placeholder="${pub.joinCodeSet ? 'Set · type to change' : 'Not set'}">
+          <button class="btn small" id="savejc">Save join code</button><span class="hint">Give this to staff to register their phone. Change it if it gets out.</span></div>
+        <div><label class="label" for="pk">Pushsafer private key</label>
+          <input class="field" id="pk" type="password" autocomplete="off" placeholder="${pub.pushsaferSet ? 'Set · paste to replace' : 'Not set'}">
+          <button class="btn small" id="savepk">Save key</button><span class="hint">From pushsafer.com, your account page. Stored on the server; it can't be read back.</span></div>
+        <div><label class="label" for="snd">Alarm sound number (Pushsafer)</label>
+          <input class="field" id="snd" inputmode="numeric" value="${esc(pub.sound || '')}" placeholder="Empty = phone's alarm sound">
+          <button class="btn small" id="savesnd">Save sound</button><span class="hint">Use the number of the sound you liked in your Pushsafer test.</span></div>
+      </div>
+      <p class="hint" id="setmsg">${esc(msg.settings || '')}</p>
+      <span class="label">Registered phones · ${devices.length}</span>
+      <div class="tablewrap" style="margin-block:8px 14px"><table class="devs"><thead><tr><th>Name</th><th>Pushsafer ID</th><th>Status</th><th></th></tr></thead>
+        <tbody>${devRows || '<tr><td colspan="4">No phones registered yet.</td></tr>'}</tbody></table></div>
+    </details>`;
+  }
+  async function saveSetting(privateData, publicData) {
+    try {
+      await db.collection('private').doc('config').set(privateData, { merge: true });
+      await db.collection('settings').doc('public').set({ ...publicData, updated: Date.now() }, { merge: true });
+      msg.settings = 'Saved.';
+    } catch (e) { msg.settings = 'Not saved: ' + (e.message || e.code); }
+    render();
   }
 
   function render() {
     if (!lead) return;
+    const ae = document.activeElement; if (ae && ae.closest && ae.closest('#settings') && ae.tagName === 'INPUT') return; // don't wipe typing
     const now = Date.now();
-    $('view').innerHTML = `${alertBar()}${feedBlock()}<div class="grid">${TEAMS.map((t) => panel(t, now)).join('')}</div>
-      <section class="section"><span class="label">Recent jobs · all teams</span>${recent()}</section>`;
-    const on = (id, fn) => { const el = $('view').querySelector('#' + id); if (el) el.onclick = fn; };
+    const shown = TEAMS.filter((t) => A.shiftWindow(t, now) || A.isActive(boards[t.id]) || crewOf(t.id, now).length
+      || alerts.some((a) => a.team === t.id && now - a.createdAt < 30 * 60000));
+    $('view').innerHTML = `${alertBar()}${feedBlock()}
+      <div class="grid">${shown.map((t) => panel(t, now)).join('') || '<div class="empty">No teams on shift right now.</div>'}</div>
+      <section class="section"><span class="label">Recent jobs · all teams</span>${recent()}</section>
+      ${settingsBlock()}`;
+    const v = $('view'); const on = (id, fn) => { const el = v.querySelector('#' + id); if (el) el.onclick = fn; };
     on('unlock', () => { unlockAudio(); setTimeout(render, 50); });
     on('sound', () => { soundOn = !soundOn; try { localStorage.setItem('accts.sound', soundOn ? 'on' : 'off'); } catch (e) {} unlockAudio(); render(); });
     on('popon', () => { try { Notification.requestPermission().then(render); } catch (e) {} });
-    on('testalert', () => { unlockAudio(); setTimeout(() => { beep(); popup(1, ['Test alert', 'This is how a new time will appear.']); }, 60); });
-    $('view').querySelectorAll('[data-ask]').forEach((b) => b.onclick = () => { confirmT = Number(b.dataset.ask); render(); });
-    $('view').querySelectorAll('[data-cancel]').forEach((b) => b.onclick = () => { confirmT = null; render(); });
-    $('view').querySelectorAll('[data-fin]').forEach((b) => b.onclick = () => {
-      const t = Number(b.dataset.fin); confirmT = null; A.finishJob(t, boards[t], 'lead').catch(() => {}); render();
+    on('testalert', () => { unlockAudio(); setTimeout(() => { beep(); popup(TEAMS[0].id, ['Test alert', 'This is how a new time will appear.']); }, 60); });
+    v.querySelector('#settings').ontoggle = (e) => { settingsOpen = e.target.open; };
+    on('savejc', () => { const c = v.querySelector('#jc').value.trim(); if (c.length < 6) { msg.settings = 'Use at least 6 characters.'; render(); return; } saveSetting({ joinCode: c }, { joinCodeSet: true }); });
+    on('savepk', () => { const k = v.querySelector('#pk').value.trim(); if (!k) return; saveSetting({ pushsaferKey: k }, { pushsaferSet: true }); });
+    on('savesnd', () => { const s = v.querySelector('#snd').value.trim(); saveSetting({ sound: s }, { sound: s }); });
+    v.querySelectorAll('[data-ask]').forEach((b) => b.onclick = () => { confirmT = b.dataset.ask; unlockAudio(); render(); });
+    v.querySelectorAll('[data-askfin]').forEach((b) => b.onclick = () => { confirmJob = b.dataset.askfin; render(); });
+    v.querySelectorAll('[data-cancel]').forEach((b) => b.onclick = () => { confirmT = null; confirmJob = null; render(); });
+    v.querySelectorAll('[data-send]').forEach((b) => b.onclick = () => { const t = b.dataset.send; confirmT = null; msg[t] = ''; sendAlarm(t); render(); });
+    v.querySelectorAll('[data-cancel-alarm]').forEach((b) => b.onclick = () => A.alertsCol().doc(b.dataset.cancelAlarm).update({ status: 'cancelled', cancelledAt: Date.now() }).catch(() => {}));
+    v.querySelectorAll('[data-fin]').forEach((b) => b.onclick = () => { const t = b.dataset.fin; confirmJob = null; A.finishJob(t, boards[t], 'lead').catch(() => {}); render(); });
+    v.querySelectorAll('[data-signoff]').forEach((b) => b.onclick = () => A.dutyCol().doc(b.dataset.signoff).delete().catch(() => {}));
+    v.querySelectorAll('[data-rmdev]').forEach((b) => b.onclick = async () => {
+      if (b.dataset.sure !== '1') { b.dataset.sure = '1'; b.textContent = 'Confirm remove'; return; }
+      try { await A.dutyCol().doc(b.dataset.rmdev).delete(); } catch (e) {}
+      db.collection('devices').doc(b.dataset.rmdev).delete().catch(() => {});
+    });
+    v.querySelectorAll('[data-testdev]').forEach((b) => b.onclick = async () => {
+      b.disabled = true; b.textContent = 'Sending…';
+      try { await A.call('testAlarm', { uid: b.dataset.testdev }); msg.settings = 'Test alarm sent.'; } catch (e) { msg.settings = 'Test failed: ' + (e.message || e.code); }
+      render();
     });
   }
   setInterval(() => { $('clock').textContent = hms(Date.now()); }, 1000);

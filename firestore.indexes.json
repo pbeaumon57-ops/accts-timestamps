@@ -1,0 +1,7 @@
+{
+  "indexes": [
+    { "collectionGroup": "alerts", "queryScope": "COLLECTION",
+      "fields": [ { "fieldPath": "team", "order": "ASCENDING" }, { "fieldPath": "createdAt", "order": "ASCENDING" } ] }
+  ],
+  "fieldOverrides": []
+}

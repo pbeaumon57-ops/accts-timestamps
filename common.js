@@ -28,7 +28,8 @@
     ['Total job',            'referral', 'base'],
   ];
   const NAME = Object.fromEntries(STAGES);
-  const TEAMS = [1, 2, 3, 4];
+  const TEAMS = CFG.teams;
+  const TEAM = Object.fromEntries(TEAMS.map((t) => [t.id, t]));
 
   const pad = (n) => String(n).padStart(2, '0');
   const hm = (t) => { const d = new Date(t); return pad(d.getHours()) + ':' + pad(d.getMinutes()); };
@@ -41,10 +42,32 @@
     return neg ? '−' + s : s;
   };
   const gap = (ms) => (ms >= 0 ? '+' : '') + dur(ms);
-  const teamName = (t) => (CFG.teamNames && CFG.teamNames[t - 1]) || 'Team ' + t;
+  const teamName = (id) => (TEAM[id] ? TEAM[id].name : id);
+  const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
-  // A job stores each phone's tap separately (tap[stage][device] = time), so phones never overwrite
-  // each other while offline. The earliest tap wins. A deliberate correction (fix[stage]) overrides taps.
+  // ---------- shifts ----------
+  const at = (base, hhmm, addDays = 0) => {
+    const [h, m] = hhmm.split(':').map(Number);
+    const d = new Date(base); d.setDate(d.getDate() + addDays); d.setHours(h, m, 0, 0); return d.getTime();
+  };
+  // The shift this team is working now, or is about to start (within the early sign-on period).
+  function shiftWindow(team, now = Date.now()) {
+    const early = (CFG.earlySignOnMin || 60) * 60000;
+    for (const off of [-1, 0, 1]) {
+      const s = at(now, team.start, off);
+      let e = at(now, team.end, off); if (e <= s) e = at(now, team.end, off + 1);
+      if (now >= s - early && now < e) return { start: s, end: e };
+    }
+    return null;
+  }
+  function nextStart(team, now = Date.now()) {
+    const s = at(now, team.start); return s > now ? s : at(now, team.start, 1);
+  }
+  const lateMs = () => (CFG.lateFinishHours || 6) * 3600000;
+
+  // ---------- job times ----------
+  // Each phone's tap is stored separately (tap[stage][device] = time), so phones never overwrite each other
+  // while offline. The earliest tap wins. A deliberate correction (fix[stage]) overrides taps.
   function stageTime(cur, id) {
     if (!cur) return null;
     const f = cur.fix && cur.fix[id];
@@ -56,7 +79,7 @@
   function resolve(cur) {
     const out = {};
     if (!cur) return out;
-    if (cur.stamps) Object.assign(out, cur.stamps); // finished jobs store plain times
+    if (cur.stamps) Object.assign(out, cur.stamps);
     STAGES.forEach(([id]) => { const t = stageTime(cur, id); if (t != null) out[id] = t; });
     return out;
   }
@@ -85,27 +108,29 @@
   const isActive = (cur) => !!(cur && (cur.started || Object.keys(resolve(cur)).length));
 
   // ---------- Firebase ----------
-  let app, auth, db;
+  let auth, db, fns;
   function initFirebase() {
-    app = firebase.initializeApp(CFG.firebase);
+    firebase.initializeApp(CFG.firebase);
     auth = firebase.auth();
     db = firebase.firestore();
-    const emu = new URLSearchParams(location.search).has('emu');
-    if (emu) { auth.useEmulator('http://localhost:9099', { disableWarnings: true }); db.useEmulator('localhost', 8080); }
+    fns = firebase.app().functions(CFG.functionsRegion);
+    if (new URLSearchParams(location.search).has('emu')) {
+      auth.useEmulator('http://localhost:9099', { disableWarnings: true });
+      db.useEmulator('localhost', 8080);
+      fns.useEmulator('localhost', 5001);
+    }
     // Keep data on the device so the app works with no signal and sends changes when it returns.
     db.enablePersistence({ synchronizeTabs: true }).catch(() => {});
-    return { auth, db };
+    return { auth, db, fns };
   }
-  const emailFor = (role) => role + '@' + CFG.accountDomain;
-  const roleOf = (user) => {
-    if (!user || !user.email) return null;
-    const local = user.email.split('@')[0];
-    if (local === 'lead') return { lead: true };
-    const m = /^team([1-4])$/.exec(local);
-    return m ? { team: Number(m[1]) } : null;
-  };
-  const teamDoc = (t) => db.collection('teams').doc(String(t));
+  const leadEmail = () => 'lead@' + CFG.accountDomain;
+  const isLead = (user) => !!(user && user.email === leadEmail());
+  const call = (name, data) => fns.httpsCallable(name)(data).then((r) => r.data);
+  const teamDoc = (t) => db.collection('teams').doc(t);
   const jobsCol = (t) => teamDoc(t).collection('jobs');
+  const dutyCol = () => db.collection('duty');
+  const alertsCol = () => db.collection('alerts');
+  const onDuty = (d, now = Date.now()) => d && d.until > now;
 
   // Close a running job: save its final times to the team's history and clear the board.
   async function finishJob(t, cur, by) {
@@ -120,8 +145,8 @@
   }
 
   window.ACCTS = {
-    CFG, STAGES, INTERVALS, NAME, TEAMS, pad, hm, hms, day, dur, gap, teamName,
-    stageTime, resolve, latest, nextStage, intervals, jobStart, isActive,
-    initFirebase, emailFor, roleOf, teamDoc, jobsCol, finishJob,
+    CFG, STAGES, INTERVALS, NAME, TEAMS, TEAM, pad, hm, hms, day, dur, gap, teamName, esc,
+    shiftWindow, nextStart, lateMs, stageTime, resolve, latest, nextStage, intervals, jobStart, isActive,
+    initFirebase, leadEmail, isLead, call, teamDoc, jobsCol, dutyCol, alertsCol, onDuty, finishJob,
   };
 })();
