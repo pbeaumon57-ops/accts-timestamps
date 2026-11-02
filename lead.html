@@ -37,6 +37,21 @@
   .tablewrap td { padding: 9px 6px; }
   .confirm { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
   .login { margin: 0 auto; }
+  .alertbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .alertbar .hint { margin-right: auto; }
+  .unlock { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; padding: 12px 14px; border-radius: 12px;
+    background: color-mix(in srgb, var(--accent) 18%, var(--surface)); border: 1px solid color-mix(in srgb, var(--accent) 50%, var(--line)); font-weight: 600; }
+  .feed { display: flex; flex-direction: column; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; }
+  .feed div { display: grid; grid-template-columns: 4.2em 6.5em 1fr; gap: 10px; padding: 8px 14px; border-top: 1px solid var(--line); font-size: 14px; }
+  .feed div:first-child { border-top: 0; }
+  .feed time { font-family: var(--mono); color: var(--muted); }
+  .feed b { font-weight: 700; }
+  .feed .new { background: color-mix(in srgb, var(--accent) 14%, transparent); }
+  tr.fresh td { background: color-mix(in srgb, var(--accent) 22%, transparent); }
+  tr.fresh td:first-child { font-weight: 700; }
+  .panel.ping { animation: ping 1.2s ease-out 3; }
+  @keyframes ping { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 70%, transparent); } 100% { box-shadow: 0 0 0 14px transparent; } }
+  @media (prefers-reduced-motion: reduce) { .panel.ping { animation: none; outline: 3px solid var(--accent); } }
 </style>
 </head>
 <body>
@@ -64,15 +79,86 @@
 
   let lead = false, boards = {}, jobsBy = {}, unsub = [], confirmT = null, fresh = {};
 
+  // ---------- alerts: sound, desktop pop-up, panel flash, tab count ----------
+  const FLASH = 2 * 60000;
+  let seen = {}, feed = [], flash = {}, ping = {}, unread = 0, audio = null, soundOn = true;
+  try { soundOn = localStorage.getItem('accts.sound') !== 'off'; } catch (e) {}
+  const canPop = () => 'Notification' in window;
+  function unlockAudio() {
+    try { if (!audio) audio = new (window.AudioContext || window.webkitAudioContext)(); if (audio.state === 'suspended') audio.resume(); } catch (e) {}
+  }
+  document.addEventListener('pointerdown', () => { const was = audio && audio.state === 'running'; unlockAudio(); if (!was) setTimeout(render, 50); });
+  function beep() {
+    if (!soundOn || !audio || audio.state !== 'running') return;
+    const t0 = audio.currentTime;
+    [[880, 0], [660, 0.18], [880, 0.36]].forEach(([f, d]) => {
+      const o = audio.createOscillator(), g = audio.createGain();
+      o.frequency.value = f; o.type = 'sine'; o.connect(g); g.connect(audio.destination);
+      g.gain.setValueAtTime(0.0001, t0 + d); g.gain.exponentialRampToValueAtTime(0.35, t0 + d + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t0 + d + 0.16);
+      o.start(t0 + d); o.stop(t0 + d + 0.17);
+    });
+  }
+  function popup(t, lines) {
+    if (!canPop() || Notification.permission !== 'granted') return;
+    try {
+      const n = new Notification(A.teamName(t) + ' · ' + lines[0], { body: lines.slice(1).join('\n'), tag: 'accts-team-' + t, renotify: true, icon: 'icon-192.png' });
+      n.onclick = () => { window.focus(); n.close(); };
+    } catch (e) {}
+  }
+  function title() { document.title = (unread ? '(' + unread + ') ' : '') + 'ACCTS Team Board'; }
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) { unread = 0; title(); } });
+  window.addEventListener('focus', () => { unread = 0; title(); });
+
+  // Compare a team's new times with what was on screen, and alert on anything new or changed.
+  function check(t, c) {
+    const st = A.resolve(c), active = A.isActive(c), prev = seen[t];
+    seen[t] = { st, active };
+    if (!prev) return; // first load: no alerts for times already there
+    const lines = [], now = Date.now();
+    STAGES.forEach(([id, name]) => {
+      if (st[id] != null && prev.st[id] == null) { lines.push(name + ' ' + hm(st[id])); flash[t + id] = now; }
+      else if (st[id] != null && prev.st[id] != null && st[id] !== prev.st[id]) { lines.push('Corrected: ' + name + ' ' + hm(st[id]) + ' (was ' + hm(prev.st[id]) + ')'); flash[t + id] = now; }
+      else if (st[id] == null && prev.st[id] != null && active) lines.push('Cleared: ' + name);
+    });
+    if (prev.active && !active) lines.push('Job finished');
+    if (!lines.length) return;
+    lines.forEach((text) => feed.unshift({ t, text, at: now }));
+    feed = feed.slice(0, 30); ping[t] = now;
+    if (document.hidden || !document.hasFocus()) unread += lines.length;
+    title();
+    // Times synced together from a phone that was out of signal arrive close together: give one alert for them.
+    (held[t] = held[t] || []).push(...lines);
+    clearTimeout(holdTimer[t]);
+    holdTimer[t] = setTimeout(() => { const l = held[t].splice(0); beep(); popup(t, l.length > 1 ? [l.length + ' updates', ...l] : l); }, 1500);
+  }
+  const held = {}, holdTimer = {};
+  function alertBar() {
+    const audioOk = audio && audio.state === 'running';
+    const perm = canPop() ? Notification.permission : 'unsupported';
+    const pop = perm === 'granted' ? '<button class="btn small ghost" disabled>Desktop pop-ups on</button>'
+      : perm === 'denied' ? '<button class="btn small ghost" disabled>Pop-ups blocked by this browser</button>'
+      : perm === 'unsupported' ? '' : '<button class="btn small primary" id="popon">Turn on desktop pop-ups</button>';
+    return `${soundOn && !audioOk ? '<div class="unlock"><span>Click anywhere on this page to allow sound alerts.</span><button class="btn small primary" id="unlock">Allow sound</button></div>' : ''}
+      <div class="alertbar"><span class="hint">Alerts for every new or corrected time while this page is open. It can sit in a background tab.</span>
+        <button class="btn small" id="sound">${soundOn ? 'Sound on' : 'Sound off'}</button>${pop}
+        <button class="btn small ghost" id="testalert">Test alert</button></div>`;
+  }
+  function feedBlock() {
+    if (!feed.length) return '';
+    const now = Date.now();
+    return `<section class="section"><span class="label">Latest updates</span><div class="feed">${feed.slice(0, 6).map((f) =>
+      `<div class="${now - f.at < FLASH ? 'new' : ''}"><time>${hm(f.at)}</time><b>${A.teamName(f.t)}</b><span>${f.text}</span></div>`).join('')}</div></section>`;
+  }
+
   auth.onAuthStateChanged((user) => {
-    unsub.forEach((f) => f()); unsub = []; boards = {}; jobsBy = {};
+    unsub.forEach((f) => f()); unsub = []; boards = {}; jobsBy = {}; seen = {}; feed = [];
     const role = A.roleOf(user);
     lead = !!(role && role.lead);
     $('signout').hidden = !user;
     if (!lead) { renderLogin(user && role && role.team ? 'This dashboard needs the team lead sign-in. You are signed in as ' + A.teamName(role.team) + '.' : ''); return; }
     $('sub').textContent = 'Signed in as team lead';
     TEAMS.forEach((t) => {
-      unsub.push(A.teamDoc(t).onSnapshot((s) => { boards[t] = s.exists ? s.data().current || null : null; fresh[t] = true; render(); }, () => {}));
+      unsub.push(A.teamDoc(t).onSnapshot((s) => { boards[t] = s.exists ? s.data().current || null : null; fresh[t] = true; check(t, boards[t]); render(); }, () => {}));
       unsub.push(A.jobsCol(t).orderBy('finished', 'desc').limit(20).onSnapshot((q) => { jobsBy[t] = q.docs.map((d) => d.data()); render(); }, () => {}));
     });
     render();
@@ -104,7 +190,8 @@
     const rows = STAGES.map(([id, name]) => {
       const tm = st[id]; let g = '';
       if (tm != null) { g = prev != null ? gap(tm - prev) : ''; prev = tm; }
-      return `<tr class="${tm != null ? '' : 'todo'}"><td>${name}</td><td class="t">${tm != null ? hm(tm) : '–'}</td><td class="g">${g}</td></tr>`;
+      const fr = flash[t + id] && Date.now() - flash[t + id] < FLASH ? ' fresh' : '';
+      return `<tr class="${tm != null ? '' : 'todo'}${fr}"><td>${name}</td><td class="t">${tm != null ? hm(tm) : '–'}</td><td class="g">${g}</td></tr>`;
     }).join('');
     const iv = A.intervals(st);
     const nowBlock = !fresh[t] ? `<div class="now"><span>Loading…</span></div>`
@@ -116,7 +203,8 @@
       ? `<div class="confirm"><span class="hint">Finish ${A.teamName(t)}'s job and clear its board?</span>
           <button class="btn small primary" data-fin="${t}">Finish job</button><button class="btn small ghost" data-cancel>Cancel</button></div>`
       : `<button class="btn small ghost" data-ask="${t}">Finish this job for the team</button>`;
-    return `<section class="panel ${stale ? 'stale' : active ? 'on' : ''}">
+    const pg = ping[t] && now - ping[t] < 4000 ? ' ping' : '';
+    return `<section class="panel ${stale ? 'stale' : active ? 'on' : ''}${pg}">
       <div class="ph"><h2>${A.teamName(t)}</h2><span class="chip ${active ? 'on' : ''}">${stale ? 'No update 1h+' : active ? 'On job' : 'Available'}</span></div>
       ${nowBlock}
       ${active ? `<table><tbody>${rows}</tbody></table>` : ''}
@@ -140,8 +228,13 @@
   function render() {
     if (!lead) return;
     const now = Date.now();
-    $('view').innerHTML = `<div class="grid">${TEAMS.map((t) => panel(t, now)).join('')}</div>
+    $('view').innerHTML = `${alertBar()}${feedBlock()}<div class="grid">${TEAMS.map((t) => panel(t, now)).join('')}</div>
       <section class="section"><span class="label">Recent jobs · all teams</span>${recent()}</section>`;
+    const on = (id, fn) => { const el = $('view').querySelector('#' + id); if (el) el.onclick = fn; };
+    on('unlock', () => { unlockAudio(); setTimeout(render, 50); });
+    on('sound', () => { soundOn = !soundOn; try { localStorage.setItem('accts.sound', soundOn ? 'on' : 'off'); } catch (e) {} unlockAudio(); render(); });
+    on('popon', () => { try { Notification.requestPermission().then(render); } catch (e) {} });
+    on('testalert', () => { unlockAudio(); setTimeout(() => { beep(); popup(1, ['Test alert', 'This is how a new time will appear.']); }, 60); });
     $('view').querySelectorAll('[data-ask]').forEach((b) => b.onclick = () => { confirmT = Number(b.dataset.ask); render(); });
     $('view').querySelectorAll('[data-cancel]').forEach((b) => b.onclick = () => { confirmT = null; render(); });
     $('view').querySelectorAll('[data-fin]').forEach((b) => b.onclick = () => {

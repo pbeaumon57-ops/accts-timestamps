@@ -32,3 +32,14 @@ Open `lead.html` at the same address on any PC or tablet and sign in with the te
 
 - **Passwords:** Firebase console → Authentication → Users → ⋮ → Reset password.
 - **Team names and the stage list:** edit `config.js` (team names) or `common.js` (stages).
+
+## Alerts on the dashboard
+
+While `lead.html` is open (a background tab is fine), every new or corrected time:
+- plays a short chime
+- shows a desktop pop-up, if you click **Turn on desktop pop-ups** and allow it
+- highlights the row on that team's panel for 2 minutes
+- adds an entry to **Latest updates**
+- shows an unread count in the browser tab
+
+Browsers only play sound after a click on the page, so click once after opening it. Use **Test alert** to check sound and pop-ups. Alerts can't arrive when the page is closed or the PC is asleep. Some Trust PCs block pop-ups; the sound and on-screen alerts still work.
