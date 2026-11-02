@@ -68,6 +68,11 @@ Open the dashboard, sign in, and open **Settings and registered phones**. Fill i
   - It repeats every 60 s for day teams and every 30 s for the night team, until enough people acknowledge: 1 for day teams, 2 at night.
   - It stops after 15 minutes. The panel turns red if nobody has acknowledged within 3 minutes.
   - Staff acknowledge by tapping **ACKNOWLEDGE** in the alarm, or the red **NEW JOB** banner in ACCTS. The others then get a quiet "Acknowledged by …" message.
+- **Job times:** the first two times fill in automatically from a confirmed-job alarm.
+  - **Alert sent:** when the lead sounds it.
+  - **Alert acknowledged:** when the first person on the team acknowledges it.
+  - If the lead phoned the team instead, they tap **Alert acknowledged** themselves.
+  - If the team is already on a job when a new alarm goes out, that job's times are left alone.
 - **End of shift:** ACCTS → **End my shift**, or let it end automatically. The team lead can also sign people off, and can remove lost or replaced phones.
 
 ## Changing teams or shift times

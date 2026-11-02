@@ -1,5 +1,5 @@
 // Offline support: serve the app from the phone, and refresh the saved copy in the background when online.
-const C = 'accts-v7';
+const C = 'accts-v8';
 const FILES = ['./', 'index.html', 'lead.html', 'style.css', 'config.js', 'common.js', 'manifest.json',
   'icon-180.png', 'icon-192.png', 'icon-512.png',
   'vendor/firebase-app-compat.js', 'vendor/firebase-auth-compat.js', 'vendor/firebase-firestore-compat.js', 'vendor/firebase-functions-compat.js'];

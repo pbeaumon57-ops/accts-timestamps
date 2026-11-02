@@ -302,10 +302,10 @@
     if (!all.length) return '<div class="empty">Finished jobs from all teams appear here.</div>';
     const iv = (st, a, b) => (st[a] != null && st[b] != null ? dur(st[b] - st[a]) : '–');
     return `<div class="tablewrap"><table>
-      <thead><tr><th>Team</th><th>Date</th><th>Referral</th><th>Mobile</th><th>At bedside</th><th>Left bedside</th><th>Arrived unit</th><th>Bedside time</th><th>Road transfer</th><th>Total</th></tr></thead>
+      <thead><tr><th>Team</th><th>Date</th><th>Alert</th><th>Acknowledged</th><th>Mobile</th><th>At bedside</th><th>Left bedside</th><th>Arrived unit</th><th>Bedside time</th><th>Road transfer</th><th>Total</th></tr></thead>
       <tbody>${all.map((j) => { const s = j.stamps || {}; const f = (k) => (s[k] != null ? hm(s[k]) : '–');
         const v = Object.values(s); const total = v.length > 1 ? dur(Math.max(...v) - Math.min(...v)) : '–';
-        return `<tr><td>${esc(A.teamName(j.team))}</td><td>${day(j.started || j.finished)}</td><td class="t">${f('referral')}</td><td class="t">${f('mobile')}</td><td class="t">${f('bedside')}</td><td class="t">${f('left_bed')}</td><td class="t">${f('arr_unit')}</td><td class="t">${iv(s, 'bedside', 'left_bed')}</td><td class="t">${iv(s, 'dep_send', 'arr_recv')}</td><td class="t">${total}</td></tr>`;
+        return `<tr><td>${esc(A.teamName(j.team))}</td><td>${day(j.started || j.finished)}</td><td class="t">${f('alerted')}</td><td class="t">${f('acked')}</td><td class="t">${f('mobile')}</td><td class="t">${f('bedside')}</td><td class="t">${f('left_bed')}</td><td class="t">${f('arr_unit')}</td><td class="t">${iv(s, 'bedside', 'left_bed')}</td><td class="t">${iv(s, 'dep_send', 'arr_recv')}</td><td class="t">${total}</td></tr>`;
       }).join('')}</tbody></table></div>`;
   }
 

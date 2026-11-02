@@ -283,7 +283,8 @@
       let when = '';
       if (t != null) { when = hm(t) + '<small>' + (prev != null ? gap(t - prev) : '&nbsp;') + '</small>'; prev = t; }
       else if (cls === 'next') when = 'Tap to record';
-      const tag = interactive ? 'button' : 'div';
+      if (A.AUTO.has(id) && t == null) when = '<small>from team lead</small>';
+      const tag = interactive && !(A.AUTO.has(id) && t == null) ? 'button' : 'div';
       return `<${tag} class="stage ${cls}" data-stage="${id}"><span class="num">${pad(i + 1)}</span><span class="name">${name}</span><span class="when">${when}</span></${tag}>`;
     }).join('');
   }
@@ -314,7 +315,7 @@
       <section class="section">
         <div class="row"><span class="label">Stages</span>
           ${undoStack.length ? '<button class="btn ghost small" id="undo">Undo last</button>' : ''}</div>
-        ${active ? '' : '<p class="hint">Tap the first stage to start a job. Each tap records the time for the whole team. Tap a recorded stage to correct it.</p>'}
+        ${active ? '' : '<p class="hint">A job starts when the team lead\'s alarm is acknowledged, or when you tap a stage. Each tap records the time for the whole team. Tap a recorded stage to correct it.</p>'}
         <div class="stages">${stageRows(st, true)}</div>
       </section>
       ${ivBlock(st)}

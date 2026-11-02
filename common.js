@@ -3,8 +3,10 @@
   const CFG = window.ACCTS_CONFIG;
 
   // Edit this list to change the stage buttons. Order matters for "next stage".
+  // auto: filled in by the team lead's alarm, not a button for the team.
   const STAGES = [
-    ['referral', 'Referral accepted'],
+    ['alerted',  'Alert sent', { auto: true }],
+    ['acked',    'Alert acknowledged'],
     ['mobile',   'Mobile to sending hospital'],
     ['arr_send', 'Arrived sending hospital'],
     ['bedside',  'Arrived bedside'],
@@ -18,16 +20,18 @@
     ['base',     'Back at base'],
   ];
   const INTERVALS = [
-    ['Referral to mobile',   'referral', 'mobile'],
+    ['Alert to acknowledged',  'alerted', 'acked'],
+    ['Acknowledged to mobile', 'acked',   'mobile'],
     ['Travel to sending',    'mobile',   'arr_send'],
     ['At sending hospital',  'arr_send', 'dep_send'],
     ['Bedside time',         'bedside',  'left_bed'],
     ['Road transfer',        'dep_send', 'arr_recv'],
     ['Left bedside to unit', 'left_bed', 'arr_unit'],
-    ['Referral to handover', 'referral', 'handover'],
-    ['Total job',            'referral', 'base'],
+    ['Alert to handover',    'alerted', 'handover'],
+    ['Total job',            'alerted', 'base'],
   ];
-  const NAME = Object.fromEntries(STAGES);
+  const NAME = Object.fromEntries(STAGES.map(([id, name]) => [id, name]));
+  const AUTO = new Set(STAGES.filter((s) => s[2] && s[2].auto).map((s) => s[0]));
   const TEAMS = CFG.teams;
   const TEAM = Object.fromEntries(TEAMS.map((t) => [t.id, t]));
 
@@ -91,13 +95,13 @@
   function nextStage(stamps) {
     let lastIdx = -1;
     STAGES.forEach(([id], i) => { if (stamps[id] != null) lastIdx = i; });
-    const after = STAGES.find(([id], i) => i > lastIdx && stamps[id] == null);
+    const after = STAGES.find(([id], i) => i > lastIdx && stamps[id] == null && !AUTO.has(id));
     return after ? after[0] : null;
   }
   function intervals(stamps) {
     return INTERVALS.map(([label, a, b]) => {
       let from = stamps[a], to = stamps[b];
-      if (label === 'Total job') { from = from ?? stamps.mobile; to = to ?? stamps.clear; }
+      if (label === 'Total job') { from = from ?? stamps.acked ?? stamps.mobile; to = to ?? stamps.clear; }
       return from != null && to != null ? [label, to - from] : null;
     }).filter(Boolean);
   }
@@ -145,7 +149,7 @@
   }
 
   window.ACCTS = {
-    CFG, STAGES, INTERVALS, NAME, TEAMS, TEAM, pad, hm, hms, day, dur, gap, teamName, esc,
+    CFG, STAGES, INTERVALS, NAME, AUTO, TEAMS, TEAM, pad, hm, hms, day, dur, gap, teamName, esc,
     shiftWindow, nextStart, lateMs, stageTime, resolve, latest, nextStage, intervals, jobStart, isActive,
     initFirebase, leadEmail, isLead, call, teamDoc, jobsCol, dutyCol, alertsCol, onDuty, finishJob,
   };

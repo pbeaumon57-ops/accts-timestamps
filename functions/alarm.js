@@ -36,6 +36,22 @@ function ackUrl(alertId, uid, token) {
   return `${base}?a=${encodeURIComponent(alertId)}&u=${encodeURIComponent(uid)}&t=${token}`;
 }
 
+// Put an alarm time on the team's board ("Alert sent", "Alert acknowledged"). Starts a job if the board is clear;
+// leaves the board alone if the team is busy on a different job.
+async function markBoard(db, team, alertId, stage, time) {
+  const ref = db.doc('teams/' + team);
+  await db.runTransaction(async (tx) => {
+    const cur = ((await tx.get(ref)).data() || {}).current || null;
+    const busy = cur && (cur.started || Object.keys(cur.tap || {}).length || Object.keys(cur.fix || {}).length);
+    if (busy && cur.alertId !== alertId) return;
+    const prev = cur && cur.tap && cur.tap[stage] && cur.tap[stage].alarm;
+    if (prev && prev <= time) return;
+    const current = busy ? { tap: { [stage]: { alarm: time } } }
+      : { id: 'j' + time.toString(36), started: time, alertId, tap: { [stage]: { alarm: time } } };
+    tx.set(ref, { current }, { merge: true });
+  });
+}
+
 const ackCount = (a) => Object.keys(a.acks || {}).filter((u) => a.targets && a.targets[u]).length;
 
 function alarmText(a, team) {
@@ -103,6 +119,7 @@ async function startAlert(db, ref, now = Date.now()) {
   const fields = { targets, needed, acks: {}, lastSent: {}, status, startedAt: now, teamName: team.name, repeatSec: team.repeatSec, sends: 0 };
   if (!potential && a.seen === undefined && a.acks && Object.keys(a.acks).length) fields.seen = a.acks; // keep who saw the potential job
   await ref.update(fields);
+  if (!potential) await markBoard(db, a.team, ref.id, 'alerted', now);
   await sendDue(db, ref, { ...a, ...fields }, tokens, await settings(db), now, true);
 }
 
@@ -142,6 +159,12 @@ async function afterChange(db, ref, before, after, now = Date.now()) {
   if (before && before.status === 'potential' && after.status === 'new' && after.level === 'confirmed') {
     await startAlert(db, ref, now);
     return;
+  }
+  // First acknowledgement of a confirmed alarm goes on the board as "Alert acknowledged".
+  if (['active', 'acknowledged'].includes(after.status) && after.level !== 'potential') {
+    const times = Object.entries(after.acks || {}).filter(([u]) => after.targets && after.targets[u]).map(([, t]) => t);
+    const beforeN = before ? Object.keys(before.acks || {}).length : 0;
+    if (times.length && times.length !== beforeN) await markBoard(db, after.team, ref.id, 'acked', Math.min(...times));
   }
   if (after.status === 'active' && after.needed && ackCount(after) >= after.needed) {
     await ref.update({ status: 'acknowledged', ackedAt: now, endedAt: now });
