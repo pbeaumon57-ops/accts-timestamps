@@ -1,6 +1,6 @@
 // New-job alarm logic: who gets alerted, sending through Pushsafer, repeating until enough people acknowledge.
 const crypto = require('crypto');
-const { TEAMS, ALERT_EXPIRE_MIN } = require('./teams');
+const { TEAMS, ALERT_EXPIRE_MIN, POTENTIAL_EXPIRE_MIN } = require('./teams');
 
 const PUSHSAFER_URL = process.env.PUSHSAFER_URL || 'https://www.pushsafer.com/api';
 
@@ -10,7 +10,8 @@ async function settings(db) {
 }
 
 // Send one Pushsafer message to one phone. loud = emergency priority (Critical Alert on iPhone).
-async function pushsafer(cfg, deviceId, { title, message, loud, url, urlTitle }) {
+// priority (optional) overrides the default: 1 = high (normal notification sound, respects silent mode).
+async function pushsafer(cfg, deviceId, { title, message, loud, priority, url, urlTitle }) {
   if (!cfg.pushsaferKey) throw new Error('No Pushsafer key set on the dashboard');
   if (!deviceId) throw new Error('No Pushsafer device ID for this phone');
   const body = new URLSearchParams({ k: cfg.pushsaferKey, d: String(deviceId), t: title, m: message, l: '60' });
@@ -19,7 +20,7 @@ async function pushsafer(cfg, deviceId, { title, message, loud, url, urlTitle })
     body.set('v', String(cfg.vibration || 3));
     if (cfg.sound) body.set('s', String(cfg.sound));
   } else {
-    body.set('pr', '0');
+    body.set('pr', String(priority != null ? priority : 0));
   }
   if (url) { body.set('u', url); body.set('ut', urlTitle || 'Open'); }
   const r = await fetch(PUSHSAFER_URL, { method: 'POST', body });
@@ -38,6 +39,13 @@ function ackUrl(alertId, uid, token) {
 const ackCount = (a) => Object.keys(a.acks || {}).filter((u) => a.targets && a.targets[u]).length;
 
 function alarmText(a, team) {
+  if (a.status === 'potential') {
+    return {
+      title: 'POSSIBLE JOB – ' + team.name,
+      message: 'Get ready. Not confirmed yet. Tap SEEN to let the team lead know.',
+      loud: !!team.potentialLoud, priority: 1, urlTitle: 'SEEN',
+    };
+  }
   const got = ackCount(a);
   return {
     title: 'NEW JOB – ' + team.name,
@@ -88,21 +96,28 @@ async function startAlert(db, ref, now = Date.now()) {
     await ref.update({ status: 'no_one', targets: {}, needed: 0, endedAt: now, note: 'Nobody is on duty for this team' });
     return;
   }
-  const needed = Math.min(team.ackNeeded, n);
+  const potential = a.level === 'potential';
+  const needed = potential ? 0 : Math.min(team.ackNeeded, n);
+  const status = potential ? 'potential' : 'active';
   await ref.collection('private').doc('tokens').set(tokens);
-  const fresh = { ...a, targets, needed, acks: {}, lastSent: {}, status: 'active', startedAt: now, teamName: team.name, repeatSec: team.repeatSec };
-  await ref.update({ targets, needed, acks: {}, lastSent: {}, status: 'active', startedAt: now, teamName: team.name, repeatSec: team.repeatSec, sends: 0 });
-  await sendDue(db, ref, fresh, tokens, await settings(db), now, true);
+  const fields = { targets, needed, acks: {}, lastSent: {}, status, startedAt: now, teamName: team.name, repeatSec: team.repeatSec, sends: 0 };
+  if (!potential && a.seen === undefined && a.acks && Object.keys(a.acks).length) fields.seen = a.acks; // keep who saw the potential job
+  await ref.update(fields);
+  await sendDue(db, ref, { ...a, ...fields }, tokens, await settings(db), now, true);
 }
 
 // Runs every minute (and again 30 s later for teams that repeat every 30 s).
 async function repeatAlerts(db, now = Date.now()) {
-  const q = await db.collection('alerts').where('status', '==', 'active').get();
+  const q = await db.collection('alerts').where('status', 'in', ['active', 'potential']).get();
   if (q.empty) return { active: 0, fast: false };
   const cfg = await settings(db);
   let fast = false;
   for (const doc of q.docs) {
     const a = doc.data();
+    if (a.status === 'potential') { // sent once only; just clear it eventually
+      if (now - (a.startedAt || a.createdAt) > POTENTIAL_EXPIRE_MIN * 60000) await doc.ref.update({ status: 'expired', endedAt: now });
+      continue;
+    }
     if (now - (a.startedAt || a.createdAt) > ALERT_EXPIRE_MIN * 60000) {
       await doc.ref.update({ status: 'expired', endedAt: now });
       continue;
@@ -123,6 +138,11 @@ async function afterChange(db, ref, before, after, now = Date.now()) {
     await Promise.all(Object.entries(a.targets || {}).filter(([u]) => !(a.acks && a.acks[u]))
       .map(([, t]) => pushsafer(c, t.pushId, { title: (a.teamName || 'ACCTS'), message, loud: false }).catch(() => {})));
   };
+  // Team lead upgraded a potential job to confirmed: start the full alarm.
+  if (before && before.status === 'potential' && after.status === 'new' && after.level === 'confirmed') {
+    await startAlert(db, ref, now);
+    return;
+  }
   if (after.status === 'active' && after.needed && ackCount(after) >= after.needed) {
     await ref.update({ status: 'acknowledged', ackedAt: now, endedAt: now });
     const names = Object.keys(after.acks).filter((u) => after.targets[u]).map((u) => after.targets[u].name);
@@ -131,6 +151,11 @@ async function afterChange(db, ref, before, after, now = Date.now()) {
   }
   if (before && before.status === 'active' && after.status === 'cancelled') {
     await quiet(after, 'Job alert cancelled by the team lead.');
+  }
+  if (before && before.status === 'potential' && after.status === 'cancelled') {
+    const c = await cfg();
+    await Promise.all(Object.values(after.targets || {}).map((t) =>
+      pushsafer(c, t.pushId, { title: after.teamName || 'ACCTS', message: 'Possible job stood down. No job.', loud: false }).catch(() => {})));
   }
 }
 
@@ -144,9 +169,11 @@ async function ackByLink(db, q, now = Date.now()) {
   if (!ok) return [403, 'This link is not valid.'];
   const snap = await ref.get(); const al = snap.data();
   if (!al.acks || !al.acks[u]) {
-    if (al.status === 'active' || al.status === 'acknowledged') await ref.update({ ['acks.' + u]: now });
+    if (['active', 'acknowledged', 'potential'].includes(al.status)) await ref.update({ ['acks.' + u]: now });
   }
   const who = (al.targets[u] && al.targets[u].name) || '';
+  if (al.status === 'potential') return [200, `Seen${who ? ', ' + who : ''}. Possible job for ${al.teamName}, not confirmed yet. You'll get a loud alarm if it's confirmed.`];
+  if (al.status === 'cancelled') return [200, 'This job was stood down. No job.'];
   return [200, `Acknowledged${who ? ', ' + who : ''}. New job for ${al.teamName}. The team lead can see your response.`];
 }
 

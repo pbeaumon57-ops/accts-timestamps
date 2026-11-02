@@ -47,9 +47,12 @@ service cloud.firestore {
     // New-job alarms. The team lead raises or cancels them; each alerted person can acknowledge for themselves.
     match /alerts/{a} {
       allow read: if isStaff() || isLead();
-      allow create: if isLead() && request.resource.data.team in teamIds() && request.resource.data.status == 'new';
-      allow update: if (isLead() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'cancelledAt'])
-                        && request.resource.data.status == 'cancelled')
+      allow create: if isLead() && request.resource.data.team in teamIds() && request.resource.data.status == 'new'
+        && request.resource.data.level in ['potential', 'confirmed'];
+      // The team lead can cancel / stand down, or upgrade a potential job to confirmed.
+      allow update: if (isLead() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'cancelledAt', 'level', 'confirmedAt'])
+                        && (request.resource.data.status == 'cancelled'
+                            || (resource.data.status == 'potential' && request.resource.data.status == 'new' && request.resource.data.level == 'confirmed')))
         || (isStaff() && request.auth.uid in resource.data.targets
             && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['acks'])
             && request.resource.data.acks.diff(resource.data.get('acks', {})).affectedKeys().hasOnly([request.auth.uid]));

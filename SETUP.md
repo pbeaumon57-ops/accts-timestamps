@@ -59,7 +59,12 @@ Open the dashboard, sign in, and open **Settings and registered phones**. Fill i
 
 - **Start of shift:** ACCTS → **Start your shift** → tap your team → **Start shift**. People can sign on up to 1 hour early. They come off duty automatically at the shift end.
   - A team still on a job can keep recording times for up to 6 hours after the shift ends, but gets no new alarms.
-- **New job:** the team lead presses **New job alarm** on the team's panel.
+- **Potential job:** the team lead presses **Potential job** on the team's panel.
+  - Everyone on duty for that team gets one normal notification. It doesn't repeat, and it doesn't sound through silent mode, so a sleeping night team isn't woken for a maybe.
+  - Staff tap **SEEN** in the alert, or the amber **POSSIBLE JOB** banner in ACCTS. The dashboard shows who has seen it.
+  - The lead then presses **Confirm job · sound alarm**, which starts the full alarm below, or **Stand down**, which sends everyone a quiet "Possible job stood down" message.
+  - To make potential-job alerts also sound through silent mode, set `potentialLoud: true` for that team in `functions/teams.js`.
+- **Confirmed job:** the team lead presses **Confirmed job alarm**, or confirms a potential job.
   - It repeats every 60 s for day teams and every 30 s for the night team, until enough people acknowledge: 1 for day teams, 2 at night.
   - It stops after 15 minutes. The panel turns red if nobody has acknowledged within 3 minutes.
   - Staff acknowledge by tapping **ACKNOWLEDGE** in the alarm, or the red **NEW JOB** banner in ACCTS. The others then get a quiet "Acknowledged by …" message.

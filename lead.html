@@ -35,6 +35,9 @@
   .alm b { font-size: 16px; }
   .alm.active { background: color-mix(in srgb, var(--warn) 16%, var(--surface)); border-color: color-mix(in srgb, var(--warn) 55%, var(--line)); }
   .alm.red { background: color-mix(in srgb, var(--danger) 18%, var(--surface)); border-color: var(--danger); }
+  .alm.pot { background: color-mix(in srgb, var(--accent) 14%, var(--surface)); border-color: color-mix(in srgb, var(--accent) 60%, var(--line)); }
+  .jobbtns { display: grid; grid-template-columns: 1fr 1.4fr; gap: 8px; }
+  .potbtn { min-height: 56px; font-weight: 700; border-color: color-mix(in srgb, var(--accent) 60%, var(--line)); }
   .alm.ok { background: color-mix(in srgb, var(--done) 16%, var(--surface)); border-color: color-mix(in srgb, var(--done) 50%, var(--line)); }
   .alm .err { min-height: 0; }
   table { width: 100%; border-collapse: collapse; font-size: 14px; }
@@ -190,7 +193,7 @@
   }
   function ackCheck(old, a) {
     const lines = [];
-    Object.keys(a.acks || {}).forEach((u) => { if (!(old.acks || {})[u] && a.targets && a.targets[u]) lines.push('Alarm acknowledged by ' + a.targets[u].name); });
+    Object.keys(a.acks || {}).forEach((u) => { if (!(old.acks || {})[u] && a.targets && a.targets[u]) lines.push((a.status === 'potential' ? 'Potential job seen by ' : 'Alarm acknowledged by ') + a.targets[u].name); });
     if (old.status !== a.status && a.status === 'expired') lines.push('Alarm stopped: not enough responses after 15 min');
     if (old.status !== a.status && a.status === 'no_one') lines.push('Alarm not sent: nobody on duty');
     if (lines.length) notify(a.team, lines);
@@ -215,8 +218,8 @@
 
   // ---------- new-job alarms ----------
   const crewOf = (t, now) => duty.filter((d) => d.team === t && A.onDuty(d, now));
-  function sendAlarm(t) {
-    A.alertsCol().add({ team: t, status: 'new', createdAt: Date.now(), createdBy: 'lead' })
+  function sendAlarm(t, level) {
+    A.alertsCol().add({ team: t, status: 'new', level, createdAt: Date.now(), createdBy: 'lead' })
       .catch((e) => { msg[t] = 'Could not send: ' + (e.message || e.code); render(); });
   }
   function alarmBlock(t, now) {
@@ -227,7 +230,13 @@
     const waiting = Object.keys(a.targets || {}).filter((u) => !(a.acks || {})[u]).map((u) => esc(a.targets[u].name)).join(', ');
     const errs = a.errors ? Object.entries(a.errors).map(([u, e]) => `<p class="err">${esc((a.targets[u] || {}).name || 'Phone')}: ${esc(e)}</p>`).join('') : '';
     const age = now - a.createdAt;
-    if (a.status === 'new') return `<div class="alm active"><b>Sending alarm…</b><span>Raised ${hm(a.createdAt)}</span></div>`;
+    if (a.status === 'new') return `<div class="alm active"><b>${a.level === 'potential' ? 'Sending potential job alert…' : 'Sending alarm…'}</b><span>Raised ${hm(a.createdAt)}</span></div>`;
+    if (a.status === 'potential') {
+      return `<div class="alm pot"><b>Potential job · sent ${hm(a.createdAt)}</b>
+        <span>${got.length ? 'Seen by ' + names : 'Not seen yet'}${waiting ? ' · Not seen: ' + waiting : ''}</span>${errs}
+        <div class="confirm"><button class="btn primary" data-confirm-alarm="${a.id}">Confirm job · sound alarm</button>
+        <button class="btn small ghost" data-cancel-alarm="${a.id}">Stand down</button></div></div>`;
+    }
     if (a.status === 'active') {
       const red = age > RED;
       return `<div class="alm ${red ? 'red' : 'active'}"><b>${red ? 'Not acknowledged after ' + dur(age) + ' · phone the team' : 'Alarm ringing · sent ' + hm(a.createdAt)}</b>
@@ -238,6 +247,7 @@
     if (a.status === 'acknowledged') return `<div class="alm ok"><b>Acknowledged · ${dur((a.ackedAt || now) - a.createdAt)} after the alarm</b><span>${names}</span></div>`;
     if (a.status === 'expired') return `<div class="alm red"><b>Alarm stopped after 15 min without enough responses</b><span>${names ? 'Acknowledged: ' + names : 'Nobody acknowledged'}${waiting ? ' · No response: ' + waiting : ''}</span>${errs}</div>`;
     if (a.status === 'no_one') return `<div class="alm red"><b>Alarm not sent ${hm(a.createdAt)}</b><span>Nobody is signed on for this team.</span></div>`;
+    if (a.status === 'cancelled' && a.level === 'potential') return `<div class="alm"><b>Potential job stood down ${hm(a.cancelledAt || a.createdAt)}</b>${names ? '<span>Seen by ' + names + '</span>' : ''}</div>`;
     if (a.status === 'cancelled') return `<div class="alm"><b>Alarm cancelled ${hm(a.cancelledAt || a.createdAt)}</b>${names ? '<span>' + names + '</span>' : ''}</div>`;
     return '';
   }
@@ -247,7 +257,7 @@
     const since = last ? now - last[1] : null; const stale = active && since > STALE;
     const crew = crewOf(t, now);
     const a = alerts.find((x) => x.team === t);
-    const ringing = a && (a.status === 'active' || a.status === 'new');
+    const ringing = a && (a.status === 'active' || a.status === 'new' || a.status === 'potential');
     const red = a && ((a.status === 'active' && now - a.createdAt > RED) || ((a.status === 'expired' || a.status === 'no_one') && now - a.createdAt < 30 * 60000));
     let prev = null;
     const rows = STAGES.map(([id, name]) => {
@@ -262,10 +272,15 @@
           <span><span class="big ${stale ? 'stale' : ''}">${last ? dur(since) : '—'}</span>${last ? ' since ' + hm(last[1]) : ''}</span>
           <span>Job running ${dur(now - A.jobStart(st, c))}</span></div>`
       : '<div class="now"><span>Status</span><b>Available</b><span>No active job</span></div>';
+    const phones = crew.length + ' phone' + (crew.length === 1 ? '' : 's');
     const alarmBtn = ringing ? '' : confirmT === t
-      ? `<div class="confirm"><span class="hint">Sound the alarm on ${crew.length} phone${crew.length === 1 ? '' : 's'}? ${team.ackNeeded > 1 && crew.length > 1 ? team.ackNeeded + ' people must acknowledge.' : ''}</span>
+      ? `<div class="confirm"><span class="hint">Sound the confirmed-job alarm on ${phones}? ${team.ackNeeded > 1 && crew.length > 1 ? team.ackNeeded + ' people must acknowledge.' : ''}</span>
           <button class="btn primary" data-send="${t}">Sound alarm</button><button class="btn small ghost" data-cancel>Cancel</button></div>`
-      : `<button class="btn primary newjob" data-ask="${t}" ${crew.length ? '' : 'disabled'}>New job alarm</button>`;
+      : confirmT === 'p:' + t
+      ? `<div class="confirm"><span class="hint">Send a potential-job alert to ${phones}? It's a normal notification, sent once.</span>
+          <button class="btn" data-sendpot="${t}">Send potential job</button><button class="btn small ghost" data-cancel>Cancel</button></div>`
+      : `<div class="jobbtns"><button class="btn potbtn" data-askpot="${t}" ${crew.length ? '' : 'disabled'}>Potential job</button>
+          <button class="btn primary newjob" data-ask="${t}" ${crew.length ? '' : 'disabled'}>Confirmed job alarm</button></div>`;
     const fin = !active ? '' : confirmJob === t
       ? `<div class="confirm"><span class="hint">Finish ${esc(team.name)}'s job and clear its board?</span>
           <button class="btn small primary" data-fin="${t}">Finish job</button><button class="btn small ghost" data-cancel>Cancel</button></div>`
@@ -350,7 +365,10 @@
     v.querySelectorAll('[data-ask]').forEach((b) => b.onclick = () => { confirmT = b.dataset.ask; unlockAudio(); render(); });
     v.querySelectorAll('[data-askfin]').forEach((b) => b.onclick = () => { confirmJob = b.dataset.askfin; render(); });
     v.querySelectorAll('[data-cancel]').forEach((b) => b.onclick = () => { confirmT = null; confirmJob = null; render(); });
-    v.querySelectorAll('[data-send]').forEach((b) => b.onclick = () => { const t = b.dataset.send; confirmT = null; msg[t] = ''; sendAlarm(t); render(); });
+    v.querySelectorAll('[data-send]').forEach((b) => b.onclick = () => { const t = b.dataset.send; confirmT = null; msg[t] = ''; sendAlarm(t, 'confirmed'); render(); });
+    v.querySelectorAll('[data-askpot]').forEach((b) => b.onclick = () => { confirmT = 'p:' + b.dataset.askpot; unlockAudio(); render(); });
+    v.querySelectorAll('[data-sendpot]').forEach((b) => b.onclick = () => { const t = b.dataset.sendpot; confirmT = null; msg[t] = ''; sendAlarm(t, 'potential'); render(); });
+    v.querySelectorAll('[data-confirm-alarm]').forEach((b) => b.onclick = () => A.alertsCol().doc(b.dataset.confirmAlarm).update({ status: 'new', level: 'confirmed', confirmedAt: Date.now() }).catch(() => {}));
     v.querySelectorAll('[data-cancel-alarm]').forEach((b) => b.onclick = () => A.alertsCol().doc(b.dataset.cancelAlarm).update({ status: 'cancelled', cancelledAt: Date.now() }).catch(() => {}));
     v.querySelectorAll('[data-fin]').forEach((b) => b.onclick = () => { const t = b.dataset.fin; confirmJob = null; A.finishJob(t, boards[t], 'lead').catch(() => {}); render(); });
     v.querySelectorAll('[data-signoff]').forEach((b) => b.onclick = () => A.dutyCol().doc(b.dataset.signoff).delete().catch(() => {}));

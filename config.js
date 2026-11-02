@@ -12,7 +12,8 @@ window.ACCTS_CONFIG = {
   accountDomain: '5beaumonts.com',
 
   // Teams by shift. If you change this list, change functions/teams.js and the team list in firestore.rules to match.
-  // ackNeeded: how many people must acknowledge a new-job alarm. repeatSec: how often it repeats until then.
+  // ackNeeded: how many people must acknowledge a confirmed-job alarm. repeatSec: how often it repeats until then.
+  // A potential-job alert is sent once as a normal notification (set potentialLoud: true in functions/teams.js to make it override silent mode).
   teams: [
     { id: 'd0820',  name: 'Day 08–20',   start: '08:00', end: '20:00', ackNeeded: 1, repeatSec: 60 },
     { id: 'd1022a', name: 'Day 10–22 A', start: '10:00', end: '22:00', ackNeeded: 1, repeatSec: 60 },

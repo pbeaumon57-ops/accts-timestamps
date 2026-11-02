@@ -126,7 +126,7 @@
   }
   function acknowledge(a) {
     A.alertsCol().doc(a.id).update({ ['acks.' + uid]: Date.now() }).catch(err);
-    toast('Acknowledged', false);
+    toast(a.status === 'potential' ? 'Marked as seen' : 'Acknowledged', false);
   }
 
   // ---------- toast & sheets ----------
@@ -245,23 +245,30 @@
       const e = $('rerr'); e.textContent = 'Registering…'; $('go').disabled = true;
       try { await A.call('register', { code: $('code').value, name: $('nm').value, pushId: $('pid').value }); e.textContent = ''; }
       catch (x) { e.textContent = /internal|unavailable|network/i.test(x.code || '') ? 'No signal. Registration needs a connection.' : String(x.message || 'Could not register.').replace(/\s*\[\d+\]$/, ''); }
-      $('go').disabled = false;
+      if ($('go')) $('go').disabled = false; // the screen has moved on once registration succeeds
     };
   }
 
+  // Banner for my team's most recent alert: confirmed job (red), potential job (amber), or how it ended.
   function alertBanner() {
-    const a = alerts.find((x) => x.status === 'active');
-    const done = alerts.find((x) => x.status === 'acknowledged' && Date.now() - (x.ackedAt || 0) < 15 * 60000);
-    if (a) {
-      const mine = a.targets && a.targets[uid]; const acked = a.acks && a.acks[uid];
-      const got = Object.keys(a.acks || {}).filter((u) => a.targets && a.targets[u]).length;
-      if (mine && !acked) return `<button class="alarm" id="ackbtn" data-alert="${a.id}"><b>NEW JOB</b><span>Alarm sent ${hm(a.createdAt)} · tap to acknowledge</span></button>`;
-      return `<div class="alarm wait"><b>New job alarm ${hm(a.createdAt)}</b><span>${got} of ${a.needed} acknowledged${acked ? ' · you have' : ''}</span></div>`;
+    const a = alerts[0]; if (!a) return '';
+    const now = Date.now();
+    const mine = a.targets && a.targets[uid]; const acked = a.acks && a.acks[uid];
+    const names = Object.keys(a.acks || {}).filter((u) => a.targets && a.targets[u]).map((u) => esc(a.targets[u].name));
+    if (a.status === 'active') {
+      if (mine && !acked) return `<button class="alarm" id="ackbtn" data-alert="${a.id}"><b>NEW JOB</b><span>Alarm sent ${hm(a.confirmedAt || a.createdAt)} · tap to acknowledge</span></button>`;
+      return `<div class="alarm wait"><b>New job alarm ${hm(a.confirmedAt || a.createdAt)}</b><span>${names.length} of ${a.needed} acknowledged${acked ? ' · you have' : ''}</span></div>`;
     }
-    if (done) {
-      const names = Object.keys(done.acks || {}).filter((u) => done.targets[u]).map((u) => esc(done.targets[u].name));
-      return `<div class="alarm ok"><b>New job ${hm(done.createdAt)}</b><span>Acknowledged by ${names.join(', ')}</span></div>`;
+    if (a.status === 'potential') {
+      if (mine && !acked) return `<button class="alarm potential" id="ackbtn" data-alert="${a.id}"><b>POSSIBLE JOB</b><span>Sent ${hm(a.createdAt)} · not confirmed yet · tap to say you've seen it</span></button>`;
+      return `<div class="alarm potential wait"><b>Possible job ${hm(a.createdAt)} · not confirmed</b><span>${names.length ? 'Seen by ' + names.join(', ') : 'Not seen yet'}. You'll get a loud alarm if it's confirmed.</span></div>`;
     }
+    if (a.status === 'acknowledged' && now - (a.ackedAt || 0) < 15 * 60000)
+      return `<div class="alarm ok"><b>New job ${hm(a.confirmedAt || a.createdAt)}</b><span>Acknowledged by ${names.join(', ')}</span></div>`;
+    if (a.status === 'cancelled' && now - (a.cancelledAt || 0) < 15 * 60000)
+      return a.level === 'potential'
+        ? `<div class="alarm wait"><b>Stood down ${hm(a.cancelledAt)}</b><span>The possible job from ${hm(a.createdAt)} is not going ahead.</span></div>`
+        : `<div class="alarm wait"><b>Alarm cancelled ${hm(a.cancelledAt)}</b><span>The team lead cancelled the job alarm.</span></div>`;
     return '';
   }
   function syncState() {
