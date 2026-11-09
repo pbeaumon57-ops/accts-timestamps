@@ -17,10 +17,10 @@
       // PLACEHOLDER: roles still to be confirmed.
       roles: ['Doctor', 'Practitioner', 'Nurse', 'Paramedic', 'Driver'],
       teams: [
-        { id: 'd0820',  name: 'Day 08–20',   start: '08:00', end: '20:00', ackNeeded: 1, repeatSec: 60, potentialLoud: false },
-        { id: 'd1022a', name: 'Day 10–22 A', start: '10:00', end: '22:00', ackNeeded: 1, repeatSec: 60, potentialLoud: false },
-        { id: 'd1022b', name: 'Day 10–22 B', start: '10:00', end: '22:00', ackNeeded: 1, repeatSec: 60, potentialLoud: false },
-        { id: 'd1022c', name: 'Day 10–22 C', start: '10:00', end: '22:00', ackNeeded: 1, repeatSec: 60, potentialLoud: false },
+        { id: 'd0820',  name: 'Day 08–20',   start: '08:00', end: '20:00', ackNeeded: 1, repeatSec: 30, potentialLoud: false },
+        { id: 'd1022a', name: 'Day 10–22 A', start: '10:00', end: '22:00', ackNeeded: 1, repeatSec: 30, potentialLoud: false },
+        { id: 'd1022b', name: 'Day 10–22 B', start: '10:00', end: '22:00', ackNeeded: 1, repeatSec: 30, potentialLoud: false },
+        { id: 'd1022c', name: 'Day 10–22 C', start: '10:00', end: '22:00', ackNeeded: 1, repeatSec: 30, potentialLoud: false },
         { id: 'n2008',  name: 'Night 20–08', start: '20:00', end: '08:00', ackNeeded: 2, repeatSec: 30, potentialLoud: false },
       ],
     },

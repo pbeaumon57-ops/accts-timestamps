@@ -120,12 +120,17 @@ h1 { margin: 0; font-size: 22px; text-wrap: balance; }
       o.start(t0 + i * 0.22); o.stop(t0 + i * 0.22 + 0.21);
     }
   }
+  // Like the real app, a phone showing the full-screen NEW JOB alarm keeps sounding until it's acknowledged.
+  setInterval(() => {
+    const showing = [...document.querySelectorAll('iframe[data-uid]')].some((f) => { try { const t = f.contentDocument.getElementById('takeover'); return t && !t.hidden; } catch (e) { return false; } });
+    if (showing) siren();
+  }, 1300);
   function deliver(uid, n) {
     const dev = S()['devices/' + uid] || {};
     logRows.unshift({ at: Date.now(), who: dev.name || uid, title: n.title, loud: n.loud });
     logRows = logRows.slice(0, 40); paintLog();
     const f = document.querySelector(`iframe[data-uid="${uid}"]`);
-    if (f && f.contentWindow && f.contentWindow.__demoNotify) { f.contentWindow.__demoNotify(n); if (n.loud) siren(); }
+    if (f && f.contentWindow && f.contentWindow.__demoNotify) f.contentWindow.__demoNotify(n);
   }
   function paintLog() {
     document.getElementById('log').innerHTML = logRows.map((r) => `<li><time>${hm(r.at)}</time><span>${r.who}</span><span class="${r.loud ? 'loud' : ''}"></span></li>`).join('');
@@ -204,12 +209,15 @@ h1 { margin: 0; font-size: 22px; text-wrap: balance; }
     const now = Date.now();
     const tap = (mins) => Object.fromEntries(Object.entries(mins).map(([k, m]) => [k, { seed: now - m * M }]));
     const s = {};
-    const people = [['sam', 'Sam', 'n2008'], ['jo', 'Jo', 'n2008'], ['ali', 'Ali', 'n2008'], ['priya', 'Priya', 'd1022a'], ['tom', 'Tom', 'd1022a'],
-      ['ellie', 'Ellie', 'd1022b'], ['raj', 'Raj', 'd1022b'], ['mo', 'Mo', 'd1022c'], ['kate', 'Kate', 'd1022c']];
-    people.forEach(([uid, name, team], i) => {
+    const people = [['sam', 'Sam', 'n2008', 'Doctor'], ['jo', 'Jo', 'n2008', 'Practitioner'], ['ali', 'Ali', 'n2008', 'Practitioner', true],
+      ['priya', 'Priya', 'd1022a', 'Doctor'], ['tom', 'Tom', 'd1022a', 'Nurse'], ['ellie', 'Ellie', 'd1022b', 'Doctor'], ['raj', 'Raj', 'd1022b', 'Paramedic'],
+      ['mo', 'Mo', 'd1022c', 'Doctor'], ['kate', 'Kate', 'd1022c', 'Practitioner']];
+    people.forEach(([uid, name, team, role, training], i) => {
       s['devices/' + uid] = { name, pushId: String(41001 + i), created: now - 30 * 24 * 60 * M };
-      s['duty/' + uid] = { uid, name, team, from: now - 90 * M, until: endOf(team), updated: now - 90 * M };
+      s['duty/' + uid] = { uid, name, team, role, training: !!training, from: now - 90 * M, until: endOf(team), updated: now - 90 * M };
     });
+    s['devices/basepc'] = { name: 'Base PC', shared: true, kind: 'board', team: null, created: now - 20 * 24 * 60 * M };
+    s['settings/public'] = { joinCodeSet: true, joinCode: 'demo-join', pushsaferSet: true, sound: '' };
     Object.keys(TEAMS).forEach((t) => { s['teams/' + t] = { current: null }; });
     s['teams/d1022b'] = { current: { id: 'jdemo2', started: now - 96 * M, alertId: 'old2', tap: tap({ alerted: 96, acked: 95, mobile: 88, arr_send: 61, bedside: 54, left_bed: 21, in_amb: 14 }) } };
     s['teams/d1022c'] = { current: { id: 'jdemo3', started: now - 151 * M, alertId: 'old3', tap: tap({ alerted: 151, acked: 149, mobile: 139, arr_send: 72 }) } };
@@ -223,7 +231,6 @@ h1 { margin: 0; font-size: 22px; text-wrap: balance; }
       s['teams/' + team + '/jobs/' + id] = { id, team, stamps: st, started: Math.min(...v), finished: Math.max(...v) + 2 * M, finishedBy: 'team' }; };
     const full = { alerted: 0, acked: 2, mobile: 9, arr_send: 34, bedside: 6, left_bed: 48, in_amb: 7, dep_send: 5, arr_recv: 41, arr_unit: 6, handover: 15, clear: 10, base: 38 };
     job('d1022a', 'h1', 9 * 60, full); job('d1022b', 'h2', 11 * 60, { ...full, bedside: 9, left_bed: 62 }); job('d0820', 'h3', 7 * 60, { ...full, arr_recv: 55 });
-    s['settings/public'] = { joinCodeSet: true, pushsaferSet: true, sound: '' };
     s['private/config'] = { joinCode: 'demo123', pushsaferKey: 'demo' };
     HUB.server = s; HUB.clients = [];
   }
@@ -274,7 +281,7 @@ h1 { margin: 0; font-size: 22px; text-wrap: balance; }
   --bg: #0e1316; --surface: #172026; --raise: #22303a; --line: #2a3741;
   --fg: #e9eef1; --muted: #8c9ba5;
   --accent: #f5b83d; --on-accent: #1d1400; --accent-ink: #f5b83d;
-  --done: #47c38f; --danger: #f06464; --warn: #f5b83d;
+  --done: #47c38f; --danger: #f06464; --warn: #f5b83d; --busy: #5aa9f0;
   --font: -apple-system, BlinkMacSystemFont, &quot;SF Pro Text&quot;, &quot;Segoe UI&quot;, Roboto, Helvetica, Arial, sans-serif;
   --mono: ui-monospace, &quot;SF Mono&quot;, Menlo, Consolas, monospace;
   color-scheme: dark;
@@ -284,14 +291,14 @@ h1 { margin: 0; font-size: 22px; text-wrap: balance; }
     --bg: #eef1f3; --surface: #ffffff; --raise: #e3e8eb; --line: #d3dade;
     --fg: #11181d; --muted: #57656f;
     --accent: #f0ad1f; --on-accent: #1d1400; --accent-ink: #8a5a00;
-    --done: #1d8a5c; --danger: #c43a3a; --warn: #a86a00; color-scheme: light;
+    --done: #1d8a5c; --danger: #c43a3a; --warn: #a86a00; --busy: #1f63b8; color-scheme: light;
   }
 }
 :root[data-theme=&quot;light&quot;] {
   --bg: #eef1f3; --surface: #ffffff; --raise: #e3e8eb; --line: #d3dade;
   --fg: #11181d; --muted: #57656f;
   --accent: #f0ad1f; --on-accent: #1d1400; --accent-ink: #8a5a00;
-  --done: #1d8a5c; --danger: #c43a3a; --warn: #a86a00; color-scheme: light;
+  --done: #1d8a5c; --danger: #c43a3a; --warn: #a86a00; --busy: #1f63b8; color-scheme: light;
 }
 :root { padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px); }
 [hidden] { display: none !important; }
@@ -381,7 +388,15 @@ button.stage:active { transform: scale(.985); }
 .teamcard .since { font-family: var(--mono); font-weight: 600; text-align: right; }
 .stale { color: var(--warn); }
 .chip { font-size: 12px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; padding: 3px 8px; border-radius: 999px; background: var(--raise); color: var(--muted); align-self: center; justify-self: end; }
-.chip.on { background: color-mix(in srgb, var(--done) 20%, transparent); color: var(--done); }
+/* Team status: green available, blue on a job, amber no update for an hour, red alarm not answered, grey nobody on */
+.chip.free { background: color-mix(in srgb, var(--done) 20%, transparent); color: var(--done); }
+.chip.busy { background: color-mix(in srgb, var(--busy) 22%, transparent); color: var(--busy); }
+.chip.stale { background: color-mix(in srgb, var(--warn) 22%, transparent); color: var(--warn); }
+.chip.red { background: var(--danger); color: #fff; }
+.teamcard.free { border-left: 5px solid var(--done); }
+.teamcard.busy { border-left: 5px solid var(--busy); }
+.teamcard.stale { border-left: 5px solid var(--warn); color: var(--fg); }
+.teamcard.none { border-left: 5px solid var(--line); }
 
 .jobs { display: flex; flex-direction: column; gap: 6px; }
 .job { display: grid; grid-template-columns: 1fr auto; gap: 2px 12px; padding: 12px 14px; text-align: left; width: 100%; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; }
@@ -450,6 +465,27 @@ button.alarm { min-height: 110px; animation: alarmpulse 1s ease-in-out infinite 
 .alarm.potential { background: var(--accent); color: var(--on-accent); }
 button.alarm.potential { min-height: 96px; animation: none; }
 .alarm.potential.wait { background: color-mix(in srgb, var(--accent) 18%, var(--surface)); color: var(--fg); border: 1px solid var(--accent); }
+
+/* Role choice at sign-on */
+.rolepick { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px; }
+.rolebtn { min-height: 56px; padding: 8px 12px; border-radius: 12px; border: 1px solid var(--line); background: var(--surface); font-size: 16px; font-weight: 700; text-align: left; }
+.rolebtn[aria-pressed=&quot;true&quot;] { background: var(--accent); color: var(--on-accent); border-color: transparent; }
+.trainbtn { display: flex; align-items: center; gap: 10px; min-height: 48px; padding: 8px 12px; border-radius: 10px; border: 1px solid var(--line); background: transparent; font-size: 15px; font-weight: 600; text-align: left; }
+.trainbtn i { width: 22px; height: 22px; border-radius: 6px; border: 2px solid var(--muted); flex: none; }
+.trainbtn[aria-pressed=&quot;true&quot;] i { background: var(--accent); border-color: var(--accent); }
+
+/* Confirmed-job alarm: takes over the whole screen until acknowledged */
+.takeover { position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; background: #b3121b; color: #fff;
+  padding: max(24px, env(safe-area-inset-top, 0px)) max(16px, env(safe-area-inset-right, 0px)) max(24px, env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px));
+  animation: tkflash 1s steps(1) infinite; text-align: center; }
+@keyframes tkflash { 50% { background: #e5383b; } }
+.tk-in { display: flex; flex-direction: column; align-items: center; gap: 14px; width: 100%; max-width: 480px; }
+.tk-in b { font-size: 64px; line-height: 1; letter-spacing: .04em; }
+.tk-team { font-size: 28px; font-weight: 800; }
+.tk-time { font-size: 18px; font-weight: 600; opacity: .95; font-variant-numeric: tabular-nums; }
+.tk-ack { width: 100%; min-height: 120px; margin-top: 16px; border-radius: 20px; border: 4px solid #fff; background: #fff; color: #b3121b; font-size: 30px; font-weight: 900; letter-spacing: .06em; }
+.tk-hint { font-size: 15px; opacity: .9; }
+@media (prefers-reduced-motion: reduce) { .takeover { animation: none; } }
 &lt;/style&gt;
 &lt;/head&gt;
 &lt;body class=&quot;app&quot;&gt;
@@ -464,9 +500,56 @@ button.alarm.potential { min-height: 96px; animation: none; }
   &lt;button class=&quot;tab&quot; data-tab=&quot;history&quot;&gt;History&lt;/button&gt;
 &lt;/nav&gt;
 &lt;div class=&quot;toast&quot; id=&quot;toast&quot; hidden&gt;&lt;span id=&quot;toast-msg&quot;&gt;&lt;/span&gt;&lt;button id=&quot;toast-undo&quot;&gt;Undo&lt;/button&gt;&lt;/div&gt;
+&lt;div class=&quot;takeover&quot; id=&quot;takeover&quot; hidden role=&quot;alertdialog&quot; aria-live=&quot;assertive&quot;&gt;&lt;/div&gt;
 &lt;div class=&quot;scrim&quot; id=&quot;scrim&quot; hidden&gt;&lt;div class=&quot;sheet&quot; id=&quot;sheet&quot; role=&quot;dialog&quot; aria-modal=&quot;true&quot;&gt;&lt;/div&gt;&lt;/div&gt;
 
-&lt;script&gt;window.DEMO_UID=&#x27;sam&#x27;;&lt;/script&gt;&lt;script&gt;// Demo stand-in for Firebase. Every phone and the dashboard share one in-memory store held by the demo page,
+&lt;script&gt;// Service settings: one block per service. Read by both the app and the server.
+// Each deployment chooses its block with `profile` in config.js (app) and ACCTS_PROFILE in functions/.env (server).
+//
+// Team fields:
+//   id            short code, lower case letters, numbers and dashes (don&#x27;t change once in use)
+//   name          as shown to staff
+//   start, end    shift times &quot;HH:MM&quot;. Leave both out for a team people can sign on to at any time (see shiftHours).
+//   shiftHours    for teams without set times: how long a sign-on lasts (default 12)
+//   ackNeeded     how many people must acknowledge a confirmed-job alarm
+//   ackEachRole   true = instead, one person in each role on the team must acknowledge
+//   repeatSec     how often an unacknowledged alarm repeats
+//   potentialLoud true = potential-job alerts also sound through silent mode (once, no repeats)
+(function (root) {
+  const PROFILES = {
+    &#x27;arcc-kss&#x27;: {
+      serviceName: &#x27;ARCC KSS&#x27;,
+      // PLACEHOLDER: roles still to be confirmed.
+      roles: [&#x27;Doctor&#x27;, &#x27;Practitioner&#x27;, &#x27;Nurse&#x27;, &#x27;Paramedic&#x27;, &#x27;Driver&#x27;],
+      teams: [
+        { id: &#x27;d0820&#x27;,  name: &#x27;Day 08–20&#x27;,   start: &#x27;08:00&#x27;, end: &#x27;20:00&#x27;, ackNeeded: 1, repeatSec: 30, potentialLoud: false },
+        { id: &#x27;d1022a&#x27;, name: &#x27;Day 10–22 A&#x27;, start: &#x27;10:00&#x27;, end: &#x27;22:00&#x27;, ackNeeded: 1, repeatSec: 30, potentialLoud: false },
+        { id: &#x27;d1022b&#x27;, name: &#x27;Day 10–22 B&#x27;, start: &#x27;10:00&#x27;, end: &#x27;22:00&#x27;, ackNeeded: 1, repeatSec: 30, potentialLoud: false },
+        { id: &#x27;d1022c&#x27;, name: &#x27;Day 10–22 C&#x27;, start: &#x27;10:00&#x27;, end: &#x27;22:00&#x27;, ackNeeded: 1, repeatSec: 30, potentialLoud: false },
+        { id: &#x27;n2008&#x27;,  name: &#x27;Night 20–08&#x27;, start: &#x27;20:00&#x27;, end: &#x27;08:00&#x27;, ackNeeded: 2, repeatSec: 30, potentialLoud: false },
+      ],
+    },
+    &#x27;access-london&#x27;: {
+      serviceName: &#x27;ACCESS London&#x27;,
+      roles: [&#x27;Transfer Doctor&#x27;, &#x27;Transfer Practitioner&#x27;],
+      // PLACEHOLDER: team names and shift times still to be confirmed. Without set times, staff can sign on at any time for 12 hours.
+      teams: [
+        { id: &#x27;team-1&#x27;, name: &#x27;Team 1&#x27;, shiftHours: 12, ackEachRole: true, repeatSec: 30, potentialLoud: false },
+        { id: &#x27;team-2&#x27;, name: &#x27;Team 2&#x27;, shiftHours: 12, ackEachRole: true, repeatSec: 30, potentialLoud: false },
+        { id: &#x27;team-3&#x27;, name: &#x27;Team 3&#x27;, shiftHours: 12, ackEachRole: true, repeatSec: 30, potentialLoud: false },
+        { id: &#x27;team-4&#x27;, name: &#x27;Team 4&#x27;, shiftHours: 12, ackEachRole: true, repeatSec: 30, potentialLoud: false },
+      ],
+    },
+  };
+  for (const p of Object.values(PROFILES)) {
+    p.alertExpireMin = p.alertExpireMin || 15;      // stop repeating a confirmed-job alarm after this long
+    p.potentialExpireMin = p.potentialExpireMin || 120; // clear a potential job never confirmed or stood down
+  }
+  if (typeof module !== &#x27;undefined&#x27; &amp;&amp; module.exports) module.exports = PROFILES;
+  else root.ACCTS_PROFILES = PROFILES;
+})(this);
+&lt;/script&gt;
+&lt;script&gt;window.DEMO_UID=&#x27;sam&#x27;;window.ACCTS_NO_APP_SIREN=true;&lt;/script&gt;&lt;script&gt;// Demo stand-in for Firebase. Every phone and the dashboard share one in-memory store held by the demo page,
 // which also plays the part of the server (alarms, repeats, acknowledgements). A phone with its signal off keeps
 // its changes and sends them when switched back on.
 (() =&gt; {
@@ -592,16 +675,10 @@ window.ACCTS_CONFIG = {
   // The team lead signs in to the dashboard as lead@&lt;this domain&gt;. No emails are sent to it.
   accountDomain: &#x27;5beaumonts.com&#x27;,
 
-  // Teams by shift. If you change this list, change functions/teams.js and the team list in firestore.rules to match.
-  // ackNeeded: how many people must acknowledge a confirmed-job alarm. repeatSec: how often it repeats until then.
-  // A potential-job alert is sent once as a normal notification (set potentialLoud: true in functions/teams.js to make it override silent mode).
-  teams: [
-    { id: &#x27;d0820&#x27;,  name: &#x27;Day 08–20&#x27;,   start: &#x27;08:00&#x27;, end: &#x27;20:00&#x27;, ackNeeded: 1, repeatSec: 60 },
-    { id: &#x27;d1022a&#x27;, name: &#x27;Day 10–22 A&#x27;, start: &#x27;10:00&#x27;, end: &#x27;22:00&#x27;, ackNeeded: 1, repeatSec: 60 },
-    { id: &#x27;d1022b&#x27;, name: &#x27;Day 10–22 B&#x27;, start: &#x27;10:00&#x27;, end: &#x27;22:00&#x27;, ackNeeded: 1, repeatSec: 60 },
-    { id: &#x27;d1022c&#x27;, name: &#x27;Day 10–22 C&#x27;, start: &#x27;10:00&#x27;, end: &#x27;22:00&#x27;, ackNeeded: 1, repeatSec: 60 },
-    { id: &#x27;n2008&#x27;,  name: &#x27;Night 20–08&#x27;, start: &#x27;20:00&#x27;, end: &#x27;08:00&#x27;, ackNeeded: 2, repeatSec: 30 },
-  ],
+  // Which service this deployment is for. Teams, roles and alarm rules are in functions/profiles.js.
+  // Must match ACCTS_PROFILE in functions/.env.  &#x27;arcc-kss&#x27; or &#x27;access-london&#x27;
+  profile: &#x27;arcc-kss&#x27;,
+
   earlySignOnMin: 60,   // people can start a shift up to this long before it begins
   lateFinishHours: 6,   // after the shift ends, a team can keep recording times on a running job for this long
   alertRedAfterMin: 3,  // dashboard turns red if an alarm isn&#x27;t acknowledged within this time
@@ -610,6 +687,9 @@ window.ACCTS_CONFIG = {
 &lt;script&gt;// Shared by the phone app (index.html) and the team lead dashboard (lead.html).
 (() =&gt; {
   const CFG = window.ACCTS_CONFIG;
+  const PROFILE = (window.ACCTS_PROFILES || {})[CFG.profile || &#x27;arcc-kss&#x27;];
+  if (!PROFILE) throw new Error(&#x27;Unknown service profile: &#x27; + CFG.profile);
+  Object.assign(CFG, PROFILE); // serviceName, roles, teams
 
   // Edit this list to change the stage buttons. Order matters for &quot;next stage&quot;.
   // auto: filled in by the team lead&#x27;s alarm, not a button for the team.
@@ -665,6 +745,7 @@ window.ACCTS_CONFIG = {
   };
   // The shift this team is working now, or is about to start (within the early sign-on period).
   function shiftWindow(team, now = Date.now()) {
+    if (!team.start || !team.end) return { start: now, end: now + (team.shiftHours || 12) * 3600000 }; // no set hours: any time
     const early = (CFG.earlySignOnMin || 60) * 60000;
     for (const off of [-1, 0, 1]) {
       const s = at(now, team.start, off);
@@ -674,6 +755,7 @@ window.ACCTS_CONFIG = {
     return null;
   }
   function nextStart(team, now = Date.now()) {
+    if (!team.start) return now;
     const s = at(now, team.start); return s &gt; now ? s : at(now, team.start, 1);
   }
   const lateMs = () =&gt; (CFG.lateFinishHours || 6) * 3600000;
@@ -719,6 +801,16 @@ window.ACCTS_CONFIG = {
     return v.length ? Math.min(...v) : (cur &amp;&amp; cur.started) || null;
   };
   const isActive = (cur) =&gt; !!(cur &amp;&amp; (cur.started || Object.keys(resolve(cur)).length));
+  // One status per team, used for its colour: red alarm unanswered, amber no update for an hour, blue on a job,
+  // green available, grey nobody signed on.
+  function teamStatus({ cur, crew, alarmRed, now = Date.now() }) {
+    const st = resolve(cur); const last = latest(st); const active = isActive(cur);
+    if (alarmRed) return { cls: &#x27;red&#x27;, label: &#x27;Alarm not answered&#x27; };
+    if (active &amp;&amp; last &amp;&amp; now - last[1] &gt; 3600000) return { cls: &#x27;stale&#x27;, label: &#x27;No update 1h+&#x27; };
+    if (active) return { cls: &#x27;busy&#x27;, label: &#x27;On job&#x27; };
+    if (crew &gt; 0) return { cls: &#x27;free&#x27;, label: &#x27;Available&#x27; };
+    return { cls: &#x27;none&#x27;, label: &#x27;Nobody on&#x27; };
+  }
 
   // ---------- Firebase ----------
   let auth, db, fns;
@@ -759,7 +851,7 @@ window.ACCTS_CONFIG = {
 
   window.ACCTS = {
     CFG, STAGES, INTERVALS, NAME, AUTO, TEAMS, TEAM, pad, hm, hms, day, dur, gap, teamName, esc,
-    shiftWindow, nextStart, lateMs, stageTime, resolve, latest, nextStage, intervals, jobStart, isActive,
+    shiftWindow, nextStart, lateMs, stageTime, resolve, latest, nextStage, intervals, jobStart, isActive, teamStatus,
     initFirebase, leadEmail, isLead, call, teamDoc, jobsCol, dutyCol, alertsCol, onDuty, finishJob,
   };
 })();
@@ -779,12 +871,15 @@ window.ACCTS_CONFIG = {
   let unsub = [], teamUnsub = [], watchingTeam = null;
 
   // ---------- who am I, and what is my team right now ----------
-  const myTeam = () =&gt; (duty &amp;&amp; duty.until + A.lateMs() &gt; Date.now() ? duty.team : null);
-  const shiftOver = () =&gt; duty &amp;&amp; duty.until &lt;= Date.now();
+  // A shared device is either a permanent station for one team, or a board showing all teams.
+  const station = () =&gt; !!(device &amp;&amp; device.shared &amp;&amp; device.kind === &#x27;station&#x27; &amp;&amp; device.team);
+  const board = () =&gt; !!(device &amp;&amp; device.shared &amp;&amp; device.kind !== &#x27;station&#x27;);
+  const myTeam = () =&gt; (station() ? device.team : duty &amp;&amp; duty.until + A.lateMs() &gt; Date.now() ? duty.team : null);
+  const shiftOver = () =&gt; !station() &amp;&amp; duty &amp;&amp; duty.until &lt;= Date.now();
   const cur = () =&gt; (myTeam() ? boards[myTeam()] || null : null);
   const stamps = () =&gt; A.resolve(cur());
   // After the shift ends you can finish a running job, but you&#x27;re off duty once it&#x27;s done.
-  const working = () =&gt; !!myTeam() &amp;&amp; (!shiftOver() || A.isActive(cur()));
+  const working = () =&gt; station() || (!!myTeam() &amp;&amp; (!shiftOver() || A.isActive(cur())));
 
   auth.onAuthStateChanged(async (user) =&gt; {
     [...unsub, ...dataUnsub, ...teamUnsub].forEach((f) =&gt; f()); unsub = []; dataUnsub = []; teamUnsub = []; watchingTeam = null; duty = null;
@@ -800,6 +895,8 @@ window.ACCTS_CONFIG = {
       // Team data is only readable once this phone is registered, so start listening then.
       if (device &amp;&amp; !listening) { listening = true; listen(); }
       if (!device &amp;&amp; listening) { listening = false; dataUnsub.forEach((f) =&gt; f()); dataUnsub = []; teamUnsub.forEach((f) =&gt; f()); teamUnsub = []; watchingTeam = null; duty = null; }
+      if (device) watchTeam();
+      if (board()) view = &#x27;all&#x27;;
       render();
     }, () =&gt; { device = null; render(); }));
     render();
@@ -913,15 +1010,61 @@ window.ACCTS_CONFIG = {
     const w = A.shiftWindow(team);
     if (!w) return;
     const early = w.start &gt; Date.now();
-    openSheet(`&lt;h2&gt;Start ${esc(team.name)}?&lt;/h2&gt;
+    const roles = A.CFG.roles || [];
+    let role = roles.length === 1 ? roles[0] : null, training = false;
+    openSheet(`&lt;h2&gt;Start ${esc(team.name)}&lt;/h2&gt;
+      ${roles.length ? `&lt;span class=&quot;label&quot;&gt;Your role this shift&lt;/span&gt;&lt;div class=&quot;rolepick&quot;&gt;${roles.map((r) =&gt; `&lt;button class=&quot;rolebtn&quot; data-role=&quot;${esc(r)}&quot; aria-pressed=&quot;${r === role}&quot;&gt;${esc(r)}&lt;/button&gt;`).join(&#x27;&#x27;)}&lt;/div&gt;` : &#x27;&#x27;}
+      &lt;button class=&quot;trainbtn&quot; id=&quot;train&quot; aria-pressed=&quot;false&quot;&gt;&lt;i&gt;&lt;/i&gt;&lt;span&gt;Supernumerary or in training&lt;/span&gt;&lt;/button&gt;
       &lt;p class=&quot;hint&quot;&gt;You&#x27;ll be on duty ${early ? &#x27;from &#x27; + hm(w.start) + &#x27; &#x27; : &#x27;&#x27;}until ${hm(w.end)}${w.end - Date.now() &gt; 12 * 3600000 ? &#x27; tomorrow&#x27; : &#x27;&#x27;}, and get new-job alarms for this team. You come off duty automatically at the end of the shift.&lt;/p&gt;
-      &lt;div class=&quot;actions&quot;&gt;&lt;button class=&quot;btn ghost&quot; id=&quot;cancel&quot;&gt;Cancel&lt;/button&gt;&lt;button class=&quot;btn primary&quot; id=&quot;go&quot;&gt;Start shift&lt;/button&gt;&lt;/div&gt;`, (s) =&gt; {
+      &lt;div class=&quot;actions&quot;&gt;&lt;button class=&quot;btn ghost&quot; id=&quot;cancel&quot;&gt;Cancel&lt;/button&gt;&lt;button class=&quot;btn primary&quot; id=&quot;go&quot; ${roles.length &amp;&amp; !role ? &#x27;disabled&#x27; : &#x27;&#x27;}&gt;Start shift&lt;/button&gt;&lt;/div&gt;`, (s) =&gt; {
+      s.querySelectorAll(&#x27;[data-role]&#x27;).forEach((b) =&gt; b.onclick = () =&gt; {
+        role = b.dataset.role; s.querySelectorAll(&#x27;[data-role]&#x27;).forEach((x) =&gt; x.setAttribute(&#x27;aria-pressed&#x27;, String(x === b)));
+        s.querySelector(&#x27;#go&#x27;).disabled = false;
+      });
+      s.querySelector(&#x27;#train&#x27;).onclick = (e) =&gt; { training = !training; e.currentTarget.setAttribute(&#x27;aria-pressed&#x27;, String(training)); };
       s.querySelector(&#x27;#cancel&#x27;).onclick = closeSheet;
       s.querySelector(&#x27;#go&#x27;).onclick = () =&gt; {
+        if (roles.length &amp;&amp; !role) return;
         closeSheet();
-        A.dutyCol().doc(uid).set({ uid, name: device.name, team: team.id, from: Date.now(), until: w.end, updated: Date.now() }).catch(err);
-        toast(&#x27;On duty: &#x27; + team.name, false);
+        A.dutyCol().doc(uid).set({ uid, name: device.name, team: team.id, role: role || &#x27;&#x27;, training, from: Date.now(), until: w.end, updated: Date.now() }).catch(err);
+        toast(&#x27;On duty: &#x27; + team.name + (role ? &#x27; · &#x27; + role : &#x27;&#x27;), false);
       };
+    });
+  }
+  const who = (d) =&gt; esc(d.name) + (d.role ? &#x27; · &#x27; + esc(d.role) : &#x27;&#x27;) + (d.training ? &#x27; (training)&#x27; : &#x27;&#x27;);
+
+  // ---------- QR codes: scanned inside the app (the iPhone camera app would open Safari instead) ----------
+  // A code is a link: &lt;app address&gt;#join=CODE (personal phones) or #device=CODE (shared devices).
+  function parseCode(text) {
+    const t = String(text || &#x27;&#x27;).trim();
+    const m = /[#?&amp;](join|device)=([^&amp;#\s]+)/i.exec(t);
+    if (m) return { kind: m[1].toLowerCase(), code: decodeURIComponent(m[2]) };
+    return t ? { kind: null, code: t } : null;
+  }
+  function scanQR(onCode) {
+    let stream = null, stopped = false;
+    const stop = () =&gt; { stopped = true; if (stream) stream.getTracks().forEach((t) =&gt; t.stop()); };
+    openSheet(`&lt;h2&gt;Scan the ACCTS QR code&lt;/h2&gt;
+      &lt;video id=&quot;qv&quot; playsinline muted autoplay style=&quot;width:100%;aspect-ratio:1;object-fit:cover;border-radius:12px;background:#000&quot;&gt;&lt;/video&gt;
+      &lt;p class=&quot;hint&quot; id=&quot;qh&quot;&gt;Point the camera at the QR code from the team lead.&lt;/p&gt;
+      &lt;button class=&quot;btn ghost&quot; id=&quot;cancel&quot;&gt;Cancel&lt;/button&gt;`, async (s) =&gt; {
+      s.querySelector(&#x27;#cancel&#x27;).onclick = () =&gt; { stop(); closeSheet(); };
+      try { stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: &#x27;environment&#x27; }, audio: false }); }
+      catch (e) { s.querySelector(&#x27;#qh&#x27;).textContent = &#x27;The camera isn\&#x27;t available. Allow camera access for ACCTS, or type the code instead.&#x27;; return; }
+      if (stopped) { stop(); return; }
+      const v = s.querySelector(&#x27;#qv&#x27;); v.srcObject = stream; try { await v.play(); } catch (e) {}
+      const c = document.createElement(&#x27;canvas&#x27;); const ctx = c.getContext(&#x27;2d&#x27;, { willReadFrequently: true });
+      const loop = () =&gt; {
+        if (stopped) return;
+        if (v.videoWidth) {
+          const k = Math.min(1, 640 / v.videoWidth); c.width = v.videoWidth * k; c.height = v.videoHeight * k;
+          ctx.drawImage(v, 0, 0, c.width, c.height);
+          const r = window.jsQR &amp;&amp; jsQR(ctx.getImageData(0, 0, c.width, c.height).data, c.width, c.height, { inversionAttempts: &#x27;dontInvert&#x27; });
+          if (r &amp;&amp; r.data) { stop(); closeSheet(); onCode(r.data); return; }
+        }
+        requestAnimationFrame(loop);
+      };
+      loop();
     });
   }
   function endShift() {
@@ -962,22 +1105,41 @@ window.ACCTS_CONFIG = {
   }
 
   // ---------- screens ----------
+  let regMode = &#x27;person&#x27;, regCode = &#x27;&#x27;;
+  { const p = parseCode(location.hash); if (p &amp;&amp; p.kind) { regMode = p.kind === &#x27;device&#x27; ? &#x27;shared&#x27; : &#x27;person&#x27;; regCode = p.code; } }
   function renderRegister() {
-    $(&#x27;tabs&#x27;).hidden = true; $(&#x27;teamline&#x27;).textContent = &#x27;ACCTS&#x27;; $(&#x27;jobline&#x27;).textContent = &#x27;Set up this phone&#x27;;
+    $(&#x27;tabs&#x27;).hidden = true; $(&#x27;teamline&#x27;).textContent = &#x27;ACCTS · &#x27; + esc(A.CFG.serviceName || &#x27;&#x27;); $(&#x27;jobline&#x27;).textContent = &#x27;Set up&#x27;;
+    const ios = /iPhone|iPad|iPod/.test(navigator.userAgent) &amp;&amp; !navigator.standalone &amp;&amp; !matchMedia(&#x27;(display-mode: standalone)&#x27;).matches;
+    const shared = regMode === &#x27;shared&#x27;;
     $(&#x27;view&#x27;).innerHTML = `&lt;section class=&quot;section login&quot;&gt;
-      &lt;span class=&quot;label&quot;&gt;Set up this phone&lt;/span&gt;
-      &lt;p class=&quot;hint&quot;&gt;One time only. Ask the team lead for the join code. Your Pushsafer device ID is in the Pushsafer app and on pushsafer.com under Devices.&lt;/p&gt;
-      &lt;label class=&quot;label&quot; for=&quot;code&quot;&gt;Join code&lt;/label&gt;&lt;input class=&quot;field&quot; id=&quot;code&quot; autocomplete=&quot;off&quot; autocapitalize=&quot;off&quot;&gt;
-      &lt;label class=&quot;label&quot; for=&quot;nm&quot;&gt;Your name&lt;/label&gt;&lt;input class=&quot;field&quot; id=&quot;nm&quot; autocomplete=&quot;name&quot; placeholder=&quot;As the team will see it&quot;&gt;
-      &lt;label class=&quot;label&quot; for=&quot;pid&quot;&gt;Pushsafer device ID&lt;/label&gt;&lt;input class=&quot;field&quot; id=&quot;pid&quot; inputmode=&quot;numeric&quot; autocomplete=&quot;off&quot;&gt;
+      ${ios ? &#x27;&lt;div class=&quot;alarm potential wait&quot;&gt;&lt;b&gt;Add ACCTS to your Home Screen first&lt;/b&gt;&lt;span&gt;In Safari tap Share, then Add to Home Screen. Open ACCTS from its new icon and set it up there.&lt;/span&gt;&lt;/div&gt;&#x27; : &#x27;&#x27;}
+      &lt;span class=&quot;label&quot;&gt;${shared ? &#x27;Set up a shared device&#x27; : &#x27;Set up your phone&#x27;}&lt;/span&gt;
+      &lt;p class=&quot;hint&quot;&gt;${shared ? &#x27;For a base PC or tablet that stays signed in. The team lead makes a set-up code for it on the dashboard.&#x27;
+        : &#x27;One time only. Scan the ACCTS QR code from the team lead, then add your name and your Pushsafer device ID (shown in the Pushsafer app).&#x27;}&lt;/p&gt;
+      &lt;button class=&quot;btn primary&quot; id=&quot;scan&quot;&gt;Scan QR code&lt;/button&gt;
+      &lt;label class=&quot;label&quot; for=&quot;code&quot;&gt;${shared ? &#x27;Set-up code&#x27; : &#x27;Join code&#x27;}&lt;/label&gt;&lt;input class=&quot;field&quot; id=&quot;code&quot; autocomplete=&quot;off&quot; autocapitalize=&quot;off&quot; value=&quot;${esc(regCode)}&quot;&gt;
+      ${shared ? &#x27;&#x27; : `&lt;label class=&quot;label&quot; for=&quot;nm&quot;&gt;Your name&lt;/label&gt;&lt;input class=&quot;field&quot; id=&quot;nm&quot; autocomplete=&quot;name&quot; placeholder=&quot;As the team will see it&quot;&gt;
+      &lt;label class=&quot;label&quot; for=&quot;pid&quot;&gt;Pushsafer device ID&lt;/label&gt;&lt;input class=&quot;field&quot; id=&quot;pid&quot; inputmode=&quot;numeric&quot; autocomplete=&quot;off&quot;&gt;`}
       &lt;p class=&quot;err&quot; id=&quot;rerr&quot;&gt;&lt;/p&gt;
-      &lt;button class=&quot;btn primary&quot; id=&quot;go&quot;&gt;Register this phone&lt;/button&gt;
+      &lt;button class=&quot;btn ${shared ? &#x27;primary&#x27; : &#x27;&#x27;}&quot; id=&quot;go&quot;&gt;${shared ? &#x27;Set up this device&#x27; : &#x27;Register&#x27;}&lt;/button&gt;
+      &lt;button class=&quot;btn ghost&quot; id=&quot;mode&quot;&gt;${shared ? &#x27;This is my own phone instead&#x27; : &#x27;Setting up a shared PC or tablet?&#x27;}&lt;/button&gt;
     &lt;/section&gt;`;
+    $(&#x27;mode&#x27;).onclick = () =&gt; { regMode = shared ? &#x27;person&#x27; : &#x27;shared&#x27;; regCode = &#x27;&#x27;; renderRegister(); };
+    $(&#x27;scan&#x27;).onclick = () =&gt; scanQR((text) =&gt; {
+      const p = parseCode(text); if (!p) return;
+      if (p.kind) regMode = p.kind === &#x27;device&#x27; ? &#x27;shared&#x27; : &#x27;person&#x27;;
+      regCode = p.code; renderRegister(); $(&#x27;rerr&#x27;).textContent = &#x27;Code scanned.&#x27;;
+      const next = $(&#x27;nm&#x27;); if (next) next.focus();
+    });
     $(&#x27;go&#x27;).onclick = async () =&gt; {
-      const e = $(&#x27;rerr&#x27;); e.textContent = &#x27;Registering…&#x27;; $(&#x27;go&#x27;).disabled = true;
-      try { await A.call(&#x27;register&#x27;, { code: $(&#x27;code&#x27;).value, name: $(&#x27;nm&#x27;).value, pushId: $(&#x27;pid&#x27;).value }); e.textContent = &#x27;&#x27;; }
-      catch (x) { e.textContent = /internal|unavailable|network/i.test(x.code || &#x27;&#x27;) ? &#x27;No signal. Registration needs a connection.&#x27; : String(x.message || &#x27;Could not register.&#x27;).replace(/\s*\[\d+\]$/, &#x27;&#x27;); }
-      if ($(&#x27;go&#x27;)) $(&#x27;go&#x27;).disabled = false; // the screen has moved on once registration succeeds
+      const e = $(&#x27;rerr&#x27;); e.textContent = &#x27;Setting up…&#x27;; $(&#x27;go&#x27;).disabled = true;
+      const code = (parseCode($(&#x27;code&#x27;).value) || {}).code || &#x27;&#x27;;
+      try {
+        if (shared) await A.call(&#x27;registerShared&#x27;, { code });
+        else await A.call(&#x27;register&#x27;, { code, name: $(&#x27;nm&#x27;).value, pushId: $(&#x27;pid&#x27;).value });
+        e.textContent = &#x27;&#x27;; history.replaceState(null, &#x27;&#x27;, location.pathname + location.search);
+      } catch (x) { e.textContent = /internal|unavailable|network/i.test(x.code || &#x27;&#x27;) ? &#x27;No signal. Set-up needs a connection.&#x27; : String(x.message || &#x27;Could not set up.&#x27;).replace(/\s*\[\d+\]$/, &#x27;&#x27;); }
+      if ($(&#x27;go&#x27;)) $(&#x27;go&#x27;).disabled = false; // the screen has moved on once set-up succeeds
     };
   }
 
@@ -988,7 +1150,7 @@ window.ACCTS_CONFIG = {
     const mine = a.targets &amp;&amp; a.targets[uid]; const acked = a.acks &amp;&amp; a.acks[uid];
     const names = Object.keys(a.acks || {}).filter((u) =&gt; a.targets &amp;&amp; a.targets[u]).map((u) =&gt; esc(a.targets[u].name));
     if (a.status === &#x27;active&#x27;) {
-      if (mine &amp;&amp; !acked) return `&lt;button class=&quot;alarm&quot; id=&quot;ackbtn&quot; data-alert=&quot;${a.id}&quot;&gt;&lt;b&gt;NEW JOB&lt;/b&gt;&lt;span&gt;Alarm sent ${hm(a.confirmedAt || a.createdAt)} · tap to acknowledge&lt;/span&gt;&lt;/button&gt;`;
+      if (mine &amp;&amp; !acked) return `&lt;div class=&quot;alarm&quot;&gt;&lt;b&gt;NEW JOB&lt;/b&gt;&lt;span&gt;Alarm sent ${hm(a.confirmedAt || a.createdAt)} · waiting for you to acknowledge&lt;/span&gt;&lt;/div&gt;`;
       return `&lt;div class=&quot;alarm wait&quot;&gt;&lt;b&gt;New job alarm ${hm(a.confirmedAt || a.createdAt)}&lt;/b&gt;&lt;span&gt;${names.length} of ${a.needed} acknowledged${acked ? &#x27; · you have&#x27; : &#x27;&#x27;}&lt;/span&gt;&lt;/div&gt;`;
     }
     if (a.status === &#x27;potential&#x27;) {
@@ -1003,6 +1165,40 @@ window.ACCTS_CONFIG = {
         : `&lt;div class=&quot;alarm wait&quot;&gt;&lt;b&gt;Alarm cancelled ${hm(a.cancelledAt)}&lt;/b&gt;&lt;span&gt;The team lead cancelled the job alarm.&lt;/span&gt;&lt;/div&gt;`;
     return &#x27;&#x27;;
   }
+  // ---------- confirmed-job alarm: full screen, sounding until acknowledged ----------
+  // iPhones only let a web app make sound after a tap, so any tap in the app arms the alarm sound.
+  let audio = null, sirenTimer = null;
+  const armAudio = () =&gt; { try { if (!audio) audio = new (window.AudioContext || window.webkitAudioContext)(); if (audio.state === &#x27;suspended&#x27;) audio.resume(); } catch (e) {} };
+  document.addEventListener(&#x27;pointerdown&#x27;, armAudio, true);
+  function sirenBurst() {
+    if (!audio || audio.state !== &#x27;running&#x27; || window.ACCTS_NO_APP_SIREN) return;
+    const t0 = audio.currentTime;
+    for (let i = 0; i &lt; 4; i++) { // two-tone, like an emergency vehicle
+      const o = audio.createOscillator(), g = audio.createGain();
+      o.type = &#x27;square&#x27;; o.frequency.value = i % 2 ? 740 : 988; o.connect(g); g.connect(audio.destination);
+      g.gain.setValueAtTime(0.0001, t0 + i * 0.25); g.gain.exponentialRampToValueAtTime(0.3, t0 + i * 0.25 + 0.02);
+      g.gain.setValueAtTime(0.3, t0 + i * 0.25 + 0.2); g.gain.exponentialRampToValueAtTime(0.0001, t0 + i * 0.25 + 0.24);
+      o.start(t0 + i * 0.25); o.stop(t0 + i * 0.25 + 0.25);
+    }
+  }
+  const ringing = () =&gt; { const a = alerts[0]; return a &amp;&amp; a.status === &#x27;active&#x27; &amp;&amp; a.targets &amp;&amp; a.targets[uid] &amp;&amp; !(a.acks &amp;&amp; a.acks[uid]) &amp;&amp; working() ? a : null; };
+  function paintTakeover() {
+    const a = ringing(); const el = $(&#x27;takeover&#x27;);
+    if (!a) { el.hidden = true; el.innerHTML = &#x27;&#x27;; clearInterval(sirenTimer); sirenTimer = null; return; }
+    if (el.hidden || el.dataset.alert !== a.id) {
+      el.dataset.alert = a.id;
+      el.innerHTML = `&lt;div class=&quot;tk-in&quot;&gt;&lt;b&gt;NEW JOB&lt;/b&gt;&lt;span class=&quot;tk-team&quot;&gt;${esc(A.teamName(a.team))}&lt;/span&gt;
+        &lt;span class=&quot;tk-time&quot; id=&quot;tk-time&quot;&gt;&lt;/span&gt;
+        &lt;button class=&quot;tk-ack&quot; id=&quot;ackbtn&quot; data-alert=&quot;${a.id}&quot;&gt;ACKNOWLEDGE&lt;/button&gt;
+        &lt;span class=&quot;tk-hint&quot;&gt;Tap to acknowledge. The alarm keeps sounding until you do.&lt;/span&gt;&lt;/div&gt;`;
+      el.hidden = false;
+      el.querySelector(&#x27;#ackbtn&#x27;).onclick = () =&gt; { const x = alerts.find((y) =&gt; y.id === a.id); if (x) acknowledge(x); el.hidden = true; clearInterval(sirenTimer); sirenTimer = null; };
+    }
+    $(&#x27;tk-time&#x27;).textContent = &#x27;Alarm sent &#x27; + hm(a.confirmedAt || a.createdAt) + &#x27; · &#x27; + dur(Date.now() - (a.confirmedAt || a.createdAt)) + &#x27; ago&#x27;;
+    if (!sirenTimer) { sirenBurst(); sirenTimer = setInterval(sirenBurst, 1000); }
+    try { if (navigator.vibrate) navigator.vibrate([400, 200, 400]); } catch (e) {}
+  }
+
   function syncState() {
     if (navigator.onLine === false) return [&#x27;wait&#x27;, pending ? &#x27;No signal · saved on this phone, sends when signal returns&#x27; : &#x27;No signal · times still record&#x27;];
     if (pending) return [&#x27;wait&#x27;, &#x27;Sending…&#x27;];
@@ -1042,8 +1238,10 @@ window.ACCTS_CONFIG = {
   function renderJob() {
     if (!working()) return renderOffDuty();
     const c = cur(); const st = stamps(); const active = A.isActive(c); const [cls, txt] = syncState();
+    const crew = allDuty.filter((d) =&gt; d.team === myTeam() &amp;&amp; A.onDuty(d)).map(who);
     return `${alertBanner()}
       &lt;div class=&quot;sync ${cls}&quot;&gt;&lt;i&gt;&lt;/i&gt;&lt;span&gt;${txt}&lt;/span&gt;&lt;/div&gt;
+      ${station() ? `&lt;section class=&quot;section&quot;&gt;&lt;span class=&quot;label&quot;&gt;On duty now&lt;/span&gt;&lt;p class=&quot;hint&quot;&gt;${crew.length ? crew.join(&#x27;&lt;br&gt;&#x27;) : &#x27;Nobody signed on&#x27;}&lt;/p&gt;&lt;/section&gt;` : &#x27;&#x27;}
       &lt;section class=&quot;section&quot;&gt;
         &lt;div class=&quot;row&quot;&gt;&lt;span class=&quot;label&quot;&gt;Stages&lt;/span&gt;
           ${undoStack.length ? &#x27;&lt;button class=&quot;btn ghost small&quot; id=&quot;undo&quot;&gt;Undo last&lt;/button&gt;&#x27; : &#x27;&#x27;}&lt;/div&gt;
@@ -1053,7 +1251,7 @@ window.ACCTS_CONFIG = {
       ${ivBlock(st)}
       &lt;section class=&quot;section&quot;&gt;
         ${active ? &#x27;&lt;button class=&quot;btn primary&quot; id=&quot;finish&quot;&gt;Finish job&lt;/button&gt;&#x27; : &#x27;&#x27;}
-        ${shiftOver() ? &#x27;&lt;p class=&quot;hint&quot;&gt;Your shift has ended. Finish the job to go off duty.&lt;/p&gt;&#x27; : &#x27;&lt;button class=&quot;btn ghost&quot; id=&quot;endshift&quot;&gt;End my shift&lt;/button&gt;&#x27;}
+        ${station() ? &#x27;&#x27; : shiftOver() ? &#x27;&lt;p class=&quot;hint&quot;&gt;Your shift has ended. Finish the job to go off duty.&lt;/p&gt;&#x27; : &#x27;&lt;button class=&quot;btn ghost&quot; id=&quot;endshift&quot;&gt;End my shift&lt;/button&gt;&#x27;}
       &lt;/section&gt;`;
   }
   function renderAll() {
@@ -1062,9 +1260,10 @@ window.ACCTS_CONFIG = {
     return `${working() ? alertBanner() : &#x27;&#x27;}&lt;section class=&quot;section&quot;&gt;&lt;span class=&quot;label&quot;&gt;Teams on shift&lt;/span&gt;&lt;div class=&quot;teamcards&quot;&gt;${shown.map((t) =&gt; {
       const c = boards[t.id]; const st = A.resolve(c); const last = A.latest(st); const active = A.isActive(c);
       const since = last ? now - last[1] : null;
-      const crew = allDuty.filter((d) =&gt; d.team === t.id &amp;&amp; A.onDuty(d, now)).map((d) =&gt; esc(d.name));
-      return `&lt;div class=&quot;teamcard ${t.id === myTeam() ? &#x27;mine&#x27; : &#x27;&#x27;}&quot;&gt;
-        &lt;b&gt;${esc(t.name)}${t.id === myTeam() ? &#x27; (you)&#x27; : &#x27;&#x27;}&lt;/b&gt;&lt;span class=&quot;chip ${active ? &#x27;on&#x27; : &#x27;&#x27;}&quot;&gt;${active ? &#x27;On job&#x27; : &#x27;Available&#x27;}&lt;/span&gt;
+      const crew = allDuty.filter((d) =&gt; d.team === t.id &amp;&amp; A.onDuty(d, now)).map(who);
+      const ts = A.teamStatus({ cur: c, crew: crew.length, now });
+      return `&lt;div class=&quot;teamcard ${ts.cls} ${t.id === myTeam() ? &#x27;mine&#x27; : &#x27;&#x27;}&quot;&gt;
+        &lt;b&gt;${esc(t.name)}${t.id === myTeam() ? &#x27; (you)&#x27; : &#x27;&#x27;}&lt;/b&gt;&lt;span class=&quot;chip ${ts.cls}&quot;&gt;${ts.label}&lt;/span&gt;
         &lt;span class=&quot;st&quot;&gt;${last ? NAME[last[0]] : active ? &#x27;Job started&#x27; : &#x27;No active job&#x27;}&lt;/span&gt;
         &lt;span class=&quot;meta&quot;&gt;${crew.length ? crew.join(&#x27;, &#x27;) : &#x27;Nobody signed on&#x27;}&lt;/span&gt;
         &lt;span class=&quot;since ${since &gt; 3600000 ? &#x27;stale&#x27; : &#x27;&#x27;}&quot;&gt;${last ? dur(since) + &#x27; ago&#x27; : &#x27;&#x27;}&lt;/span&gt;
@@ -1077,7 +1276,9 @@ window.ACCTS_CONFIG = {
       const s = j.stamps || {}; const v = Object.values(s); const a = v.length ? Math.min(...v) : j.started; const b = v.length ? Math.max(...v) : j.finished;
       return `&lt;button class=&quot;job&quot; data-job=&quot;${j.id}&quot;&gt;&lt;b&gt;${day(a)} · ${hm(a)}&lt;/b&gt;&lt;span class=&quot;dur&quot;&gt;${dur(b - a)}&lt;/span&gt;&lt;span&gt;${hm(a)}–${hm(b)} · ${v.length} times&lt;/span&gt;&lt;span&gt;&lt;/span&gt;&lt;/button&gt;`;
     }).join(&#x27;&#x27;)}&lt;/div&gt;` : &#x27;&lt;div class=&quot;empty&quot;&gt;Finished jobs for your team appear here.&lt;/div&gt;&#x27;;
-    return `&lt;section class=&quot;section&quot;&gt;&lt;span class=&quot;label&quot;&gt;${t ? esc(A.teamName(t)) + &#x27; · finished jobs&#x27; : &#x27;History&#x27;}&lt;/span&gt;${list}&lt;/section&gt;`;
+    const dev = device &amp;&amp; device.shared ? `&lt;section class=&quot;section&quot;&gt;&lt;span class=&quot;label&quot;&gt;This device&lt;/span&gt;
+      &lt;p class=&quot;hint&quot;&gt;Shared device “${esc(device.name)}” · ${station() ? &#x27;station for &#x27; + esc(A.teamName(device.team)) : &#x27;board&#x27;}. It stays signed in. The team lead can remove it from the dashboard.&lt;/p&gt;&lt;/section&gt;` : &#x27;&#x27;;
+    return `&lt;section class=&quot;section&quot;&gt;&lt;span class=&quot;label&quot;&gt;${t ? esc(A.teamName(t)) + &#x27; · finished jobs&#x27; : &#x27;History&#x27;}&lt;/span&gt;${list}&lt;/section&gt;${dev}`;
   }
   function renderDetail() {
     const j = jobs.find((x) =&gt; x.id === detail); if (!j) { view = &#x27;history&#x27;; return renderHistory(); }
@@ -1093,7 +1294,7 @@ window.ACCTS_CONFIG = {
     if (!uid || device === undefined) return;
     if (device === null) { renderRegister(); return; }
     if ($(&#x27;scrim&#x27;).hidden === false &amp;&amp; $(&#x27;sheet&#x27;).querySelector(&#x27;input&#x27;)) { tick(); return; } // don&#x27;t wipe a form being typed in
-    $(&#x27;tabs&#x27;).hidden = false;
+    $(&#x27;tabs&#x27;).hidden = board(); if (board()) view = &#x27;all&#x27;;
     const v = $(&#x27;view&#x27;);
     v.innerHTML = view === &#x27;job&#x27; ? renderJob() : view === &#x27;all&#x27; ? renderAll() : view === &#x27;detail&#x27; ? renderDetail() : renderHistory();
     document.querySelectorAll(&#x27;[data-tab]&#x27;).forEach((b) =&gt; b.setAttribute(&#x27;aria-current&#x27;, (b.dataset.tab === view || (view === &#x27;detail&#x27; &amp;&amp; b.dataset.tab === &#x27;history&#x27;)) ? &#x27;page&#x27; : &#x27;false&#x27;));
@@ -1108,6 +1309,7 @@ window.ACCTS_CONFIG = {
     on(&#x27;test&#x27;, () =&gt; testAlarm(v.querySelector(&#x27;#test&#x27;), v.querySelector(&#x27;#testout&#x27;)));
     on(&#x27;back&#x27;, () =&gt; { view = &#x27;history&#x27;; render(); });
     on(&#x27;ackbtn&#x27;, () =&gt; { const a = alerts.find((x) =&gt; x.id === v.querySelector(&#x27;#ackbtn&#x27;).dataset.alert); if (a) acknowledge(a); });
+    paintTakeover();
   }
   document.querySelectorAll(&#x27;[data-tab]&#x27;).forEach((b) =&gt; b.onclick = () =&gt; { view = b.dataset.tab; render(); scrollTo(0, 0); });
   window.addEventListener(&#x27;online&#x27;, render); window.addEventListener(&#x27;offline&#x27;, render);
@@ -1116,13 +1318,16 @@ window.ACCTS_CONFIG = {
   function tick() {
     const now = Date.now(); $(&#x27;clock&#x27;).textContent = hms(now);
     if (!device) return;
+    if (!$(&#x27;takeover&#x27;).hidden) paintTakeover();
     const w = working();
     const changed = wasWorking !== null &amp;&amp; w !== wasWorking;
     wasWorking = w;
     if (changed) { watchTeam(); render(); return; } // shift started, ended, or a late job finished
+    if (board()) { $(&#x27;teamline&#x27;).textContent = &#x27;ACCTS · &#x27; + (A.CFG.serviceName || &#x27;Board&#x27;); $(&#x27;jobline&#x27;).textContent = device.name + &#x27; · all teams&#x27;; return; }
     if (!w) { $(&#x27;teamline&#x27;).textContent = &#x27;ACCTS · Off duty&#x27;; $(&#x27;jobline&#x27;).textContent = device.name; return; }
     const c = cur(); const st = stamps();
     $(&#x27;teamline&#x27;).textContent = &#x27;ACCTS · &#x27; + A.teamName(myTeam());
+    if (station()) { $(&#x27;jobline&#x27;).textContent = device.name + &#x27; · shared station&#x27; + (A.isActive(c) ? &#x27; · job &#x27; + dur(now - A.jobStart(st, c)) : &#x27;&#x27;); return; }
     $(&#x27;jobline&#x27;).textContent = (shiftOver() ? &#x27;Shift ended &#x27; + hm(duty.until) + &#x27; · finishing job&#x27; : &#x27;On duty until &#x27; + hm(duty.until))
       + (A.isActive(c) ? &#x27; · job &#x27; + dur(now - A.jobStart(st, c)) : &#x27;&#x27;);
   }
@@ -1162,7 +1367,7 @@ window.ACCTS_CONFIG = {
   --bg: #0e1316; --surface: #172026; --raise: #22303a; --line: #2a3741;
   --fg: #e9eef1; --muted: #8c9ba5;
   --accent: #f5b83d; --on-accent: #1d1400; --accent-ink: #f5b83d;
-  --done: #47c38f; --danger: #f06464; --warn: #f5b83d;
+  --done: #47c38f; --danger: #f06464; --warn: #f5b83d; --busy: #5aa9f0;
   --font: -apple-system, BlinkMacSystemFont, &quot;SF Pro Text&quot;, &quot;Segoe UI&quot;, Roboto, Helvetica, Arial, sans-serif;
   --mono: ui-monospace, &quot;SF Mono&quot;, Menlo, Consolas, monospace;
   color-scheme: dark;
@@ -1172,14 +1377,14 @@ window.ACCTS_CONFIG = {
     --bg: #eef1f3; --surface: #ffffff; --raise: #e3e8eb; --line: #d3dade;
     --fg: #11181d; --muted: #57656f;
     --accent: #f0ad1f; --on-accent: #1d1400; --accent-ink: #8a5a00;
-    --done: #1d8a5c; --danger: #c43a3a; --warn: #a86a00; color-scheme: light;
+    --done: #1d8a5c; --danger: #c43a3a; --warn: #a86a00; --busy: #1f63b8; color-scheme: light;
   }
 }
 :root[data-theme=&quot;light&quot;] {
   --bg: #eef1f3; --surface: #ffffff; --raise: #e3e8eb; --line: #d3dade;
   --fg: #11181d; --muted: #57656f;
   --accent: #f0ad1f; --on-accent: #1d1400; --accent-ink: #8a5a00;
-  --done: #1d8a5c; --danger: #c43a3a; --warn: #a86a00; color-scheme: light;
+  --done: #1d8a5c; --danger: #c43a3a; --warn: #a86a00; --busy: #1f63b8; color-scheme: light;
 }
 :root { padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px); }
 [hidden] { display: none !important; }
@@ -1269,7 +1474,15 @@ button.stage:active { transform: scale(.985); }
 .teamcard .since { font-family: var(--mono); font-weight: 600; text-align: right; }
 .stale { color: var(--warn); }
 .chip { font-size: 12px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; padding: 3px 8px; border-radius: 999px; background: var(--raise); color: var(--muted); align-self: center; justify-self: end; }
-.chip.on { background: color-mix(in srgb, var(--done) 20%, transparent); color: var(--done); }
+/* Team status: green available, blue on a job, amber no update for an hour, red alarm not answered, grey nobody on */
+.chip.free { background: color-mix(in srgb, var(--done) 20%, transparent); color: var(--done); }
+.chip.busy { background: color-mix(in srgb, var(--busy) 22%, transparent); color: var(--busy); }
+.chip.stale { background: color-mix(in srgb, var(--warn) 22%, transparent); color: var(--warn); }
+.chip.red { background: var(--danger); color: #fff; }
+.teamcard.free { border-left: 5px solid var(--done); }
+.teamcard.busy { border-left: 5px solid var(--busy); }
+.teamcard.stale { border-left: 5px solid var(--warn); color: var(--fg); }
+.teamcard.none { border-left: 5px solid var(--line); }
 
 .jobs { display: flex; flex-direction: column; gap: 6px; }
 .job { display: grid; grid-template-columns: 1fr auto; gap: 2px 12px; padding: 12px 14px; text-align: left; width: 100%; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; }
@@ -1338,6 +1551,27 @@ button.alarm { min-height: 110px; animation: alarmpulse 1s ease-in-out infinite 
 .alarm.potential { background: var(--accent); color: var(--on-accent); }
 button.alarm.potential { min-height: 96px; animation: none; }
 .alarm.potential.wait { background: color-mix(in srgb, var(--accent) 18%, var(--surface)); color: var(--fg); border: 1px solid var(--accent); }
+
+/* Role choice at sign-on */
+.rolepick { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px; }
+.rolebtn { min-height: 56px; padding: 8px 12px; border-radius: 12px; border: 1px solid var(--line); background: var(--surface); font-size: 16px; font-weight: 700; text-align: left; }
+.rolebtn[aria-pressed=&quot;true&quot;] { background: var(--accent); color: var(--on-accent); border-color: transparent; }
+.trainbtn { display: flex; align-items: center; gap: 10px; min-height: 48px; padding: 8px 12px; border-radius: 10px; border: 1px solid var(--line); background: transparent; font-size: 15px; font-weight: 600; text-align: left; }
+.trainbtn i { width: 22px; height: 22px; border-radius: 6px; border: 2px solid var(--muted); flex: none; }
+.trainbtn[aria-pressed=&quot;true&quot;] i { background: var(--accent); border-color: var(--accent); }
+
+/* Confirmed-job alarm: takes over the whole screen until acknowledged */
+.takeover { position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; background: #b3121b; color: #fff;
+  padding: max(24px, env(safe-area-inset-top, 0px)) max(16px, env(safe-area-inset-right, 0px)) max(24px, env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px));
+  animation: tkflash 1s steps(1) infinite; text-align: center; }
+@keyframes tkflash { 50% { background: #e5383b; } }
+.tk-in { display: flex; flex-direction: column; align-items: center; gap: 14px; width: 100%; max-width: 480px; }
+.tk-in b { font-size: 64px; line-height: 1; letter-spacing: .04em; }
+.tk-team { font-size: 28px; font-weight: 800; }
+.tk-time { font-size: 18px; font-weight: 600; opacity: .95; font-variant-numeric: tabular-nums; }
+.tk-ack { width: 100%; min-height: 120px; margin-top: 16px; border-radius: 20px; border: 4px solid #fff; background: #fff; color: #b3121b; font-size: 30px; font-weight: 900; letter-spacing: .06em; }
+.tk-hint { font-size: 15px; opacity: .9; }
+@media (prefers-reduced-motion: reduce) { .takeover { animation: none; } }
 &lt;/style&gt;
 &lt;/head&gt;
 &lt;body class=&quot;app&quot;&gt;
@@ -1352,9 +1586,56 @@ button.alarm.potential { min-height: 96px; animation: none; }
   &lt;button class=&quot;tab&quot; data-tab=&quot;history&quot;&gt;History&lt;/button&gt;
 &lt;/nav&gt;
 &lt;div class=&quot;toast&quot; id=&quot;toast&quot; hidden&gt;&lt;span id=&quot;toast-msg&quot;&gt;&lt;/span&gt;&lt;button id=&quot;toast-undo&quot;&gt;Undo&lt;/button&gt;&lt;/div&gt;
+&lt;div class=&quot;takeover&quot; id=&quot;takeover&quot; hidden role=&quot;alertdialog&quot; aria-live=&quot;assertive&quot;&gt;&lt;/div&gt;
 &lt;div class=&quot;scrim&quot; id=&quot;scrim&quot; hidden&gt;&lt;div class=&quot;sheet&quot; id=&quot;sheet&quot; role=&quot;dialog&quot; aria-modal=&quot;true&quot;&gt;&lt;/div&gt;&lt;/div&gt;
 
-&lt;script&gt;window.DEMO_UID=&#x27;jo&#x27;;&lt;/script&gt;&lt;script&gt;// Demo stand-in for Firebase. Every phone and the dashboard share one in-memory store held by the demo page,
+&lt;script&gt;// Service settings: one block per service. Read by both the app and the server.
+// Each deployment chooses its block with `profile` in config.js (app) and ACCTS_PROFILE in functions/.env (server).
+//
+// Team fields:
+//   id            short code, lower case letters, numbers and dashes (don&#x27;t change once in use)
+//   name          as shown to staff
+//   start, end    shift times &quot;HH:MM&quot;. Leave both out for a team people can sign on to at any time (see shiftHours).
+//   shiftHours    for teams without set times: how long a sign-on lasts (default 12)
+//   ackNeeded     how many people must acknowledge a confirmed-job alarm
+//   ackEachRole   true = instead, one person in each role on the team must acknowledge
+//   repeatSec     how often an unacknowledged alarm repeats
+//   potentialLoud true = potential-job alerts also sound through silent mode (once, no repeats)
+(function (root) {
+  const PROFILES = {
+    &#x27;arcc-kss&#x27;: {
+      serviceName: &#x27;ARCC KSS&#x27;,
+      // PLACEHOLDER: roles still to be confirmed.
+      roles: [&#x27;Doctor&#x27;, &#x27;Practitioner&#x27;, &#x27;Nurse&#x27;, &#x27;Paramedic&#x27;, &#x27;Driver&#x27;],
+      teams: [
+        { id: &#x27;d0820&#x27;,  name: &#x27;Day 08–20&#x27;,   start: &#x27;08:00&#x27;, end: &#x27;20:00&#x27;, ackNeeded: 1, repeatSec: 30, potentialLoud: false },
+        { id: &#x27;d1022a&#x27;, name: &#x27;Day 10–22 A&#x27;, start: &#x27;10:00&#x27;, end: &#x27;22:00&#x27;, ackNeeded: 1, repeatSec: 30, potentialLoud: false },
+        { id: &#x27;d1022b&#x27;, name: &#x27;Day 10–22 B&#x27;, start: &#x27;10:00&#x27;, end: &#x27;22:00&#x27;, ackNeeded: 1, repeatSec: 30, potentialLoud: false },
+        { id: &#x27;d1022c&#x27;, name: &#x27;Day 10–22 C&#x27;, start: &#x27;10:00&#x27;, end: &#x27;22:00&#x27;, ackNeeded: 1, repeatSec: 30, potentialLoud: false },
+        { id: &#x27;n2008&#x27;,  name: &#x27;Night 20–08&#x27;, start: &#x27;20:00&#x27;, end: &#x27;08:00&#x27;, ackNeeded: 2, repeatSec: 30, potentialLoud: false },
+      ],
+    },
+    &#x27;access-london&#x27;: {
+      serviceName: &#x27;ACCESS London&#x27;,
+      roles: [&#x27;Transfer Doctor&#x27;, &#x27;Transfer Practitioner&#x27;],
+      // PLACEHOLDER: team names and shift times still to be confirmed. Without set times, staff can sign on at any time for 12 hours.
+      teams: [
+        { id: &#x27;team-1&#x27;, name: &#x27;Team 1&#x27;, shiftHours: 12, ackEachRole: true, repeatSec: 30, potentialLoud: false },
+        { id: &#x27;team-2&#x27;, name: &#x27;Team 2&#x27;, shiftHours: 12, ackEachRole: true, repeatSec: 30, potentialLoud: false },
+        { id: &#x27;team-3&#x27;, name: &#x27;Team 3&#x27;, shiftHours: 12, ackEachRole: true, repeatSec: 30, potentialLoud: false },
+        { id: &#x27;team-4&#x27;, name: &#x27;Team 4&#x27;, shiftHours: 12, ackEachRole: true, repeatSec: 30, potentialLoud: false },
+      ],
+    },
+  };
+  for (const p of Object.values(PROFILES)) {
+    p.alertExpireMin = p.alertExpireMin || 15;      // stop repeating a confirmed-job alarm after this long
+    p.potentialExpireMin = p.potentialExpireMin || 120; // clear a potential job never confirmed or stood down
+  }
+  if (typeof module !== &#x27;undefined&#x27; &amp;&amp; module.exports) module.exports = PROFILES;
+  else root.ACCTS_PROFILES = PROFILES;
+})(this);
+&lt;/script&gt;
+&lt;script&gt;window.DEMO_UID=&#x27;jo&#x27;;window.ACCTS_NO_APP_SIREN=true;&lt;/script&gt;&lt;script&gt;// Demo stand-in for Firebase. Every phone and the dashboard share one in-memory store held by the demo page,
 // which also plays the part of the server (alarms, repeats, acknowledgements). A phone with its signal off keeps
 // its changes and sends them when switched back on.
 (() =&gt; {
@@ -1480,16 +1761,10 @@ window.ACCTS_CONFIG = {
   // The team lead signs in to the dashboard as lead@&lt;this domain&gt;. No emails are sent to it.
   accountDomain: &#x27;5beaumonts.com&#x27;,
 
-  // Teams by shift. If you change this list, change functions/teams.js and the team list in firestore.rules to match.
-  // ackNeeded: how many people must acknowledge a confirmed-job alarm. repeatSec: how often it repeats until then.
-  // A potential-job alert is sent once as a normal notification (set potentialLoud: true in functions/teams.js to make it override silent mode).
-  teams: [
-    { id: &#x27;d0820&#x27;,  name: &#x27;Day 08–20&#x27;,   start: &#x27;08:00&#x27;, end: &#x27;20:00&#x27;, ackNeeded: 1, repeatSec: 60 },
-    { id: &#x27;d1022a&#x27;, name: &#x27;Day 10–22 A&#x27;, start: &#x27;10:00&#x27;, end: &#x27;22:00&#x27;, ackNeeded: 1, repeatSec: 60 },
-    { id: &#x27;d1022b&#x27;, name: &#x27;Day 10–22 B&#x27;, start: &#x27;10:00&#x27;, end: &#x27;22:00&#x27;, ackNeeded: 1, repeatSec: 60 },
-    { id: &#x27;d1022c&#x27;, name: &#x27;Day 10–22 C&#x27;, start: &#x27;10:00&#x27;, end: &#x27;22:00&#x27;, ackNeeded: 1, repeatSec: 60 },
-    { id: &#x27;n2008&#x27;,  name: &#x27;Night 20–08&#x27;, start: &#x27;20:00&#x27;, end: &#x27;08:00&#x27;, ackNeeded: 2, repeatSec: 30 },
-  ],
+  // Which service this deployment is for. Teams, roles and alarm rules are in functions/profiles.js.
+  // Must match ACCTS_PROFILE in functions/.env.  &#x27;arcc-kss&#x27; or &#x27;access-london&#x27;
+  profile: &#x27;arcc-kss&#x27;,
+
   earlySignOnMin: 60,   // people can start a shift up to this long before it begins
   lateFinishHours: 6,   // after the shift ends, a team can keep recording times on a running job for this long
   alertRedAfterMin: 3,  // dashboard turns red if an alarm isn&#x27;t acknowledged within this time
@@ -1498,6 +1773,9 @@ window.ACCTS_CONFIG = {
 &lt;script&gt;// Shared by the phone app (index.html) and the team lead dashboard (lead.html).
 (() =&gt; {
   const CFG = window.ACCTS_CONFIG;
+  const PROFILE = (window.ACCTS_PROFILES || {})[CFG.profile || &#x27;arcc-kss&#x27;];
+  if (!PROFILE) throw new Error(&#x27;Unknown service profile: &#x27; + CFG.profile);
+  Object.assign(CFG, PROFILE); // serviceName, roles, teams
 
   // Edit this list to change the stage buttons. Order matters for &quot;next stage&quot;.
   // auto: filled in by the team lead&#x27;s alarm, not a button for the team.
@@ -1553,6 +1831,7 @@ window.ACCTS_CONFIG = {
   };
   // The shift this team is working now, or is about to start (within the early sign-on period).
   function shiftWindow(team, now = Date.now()) {
+    if (!team.start || !team.end) return { start: now, end: now + (team.shiftHours || 12) * 3600000 }; // no set hours: any time
     const early = (CFG.earlySignOnMin || 60) * 60000;
     for (const off of [-1, 0, 1]) {
       const s = at(now, team.start, off);
@@ -1562,6 +1841,7 @@ window.ACCTS_CONFIG = {
     return null;
   }
   function nextStart(team, now = Date.now()) {
+    if (!team.start) return now;
     const s = at(now, team.start); return s &gt; now ? s : at(now, team.start, 1);
   }
   const lateMs = () =&gt; (CFG.lateFinishHours || 6) * 3600000;
@@ -1607,6 +1887,16 @@ window.ACCTS_CONFIG = {
     return v.length ? Math.min(...v) : (cur &amp;&amp; cur.started) || null;
   };
   const isActive = (cur) =&gt; !!(cur &amp;&amp; (cur.started || Object.keys(resolve(cur)).length));
+  // One status per team, used for its colour: red alarm unanswered, amber no update for an hour, blue on a job,
+  // green available, grey nobody signed on.
+  function teamStatus({ cur, crew, alarmRed, now = Date.now() }) {
+    const st = resolve(cur); const last = latest(st); const active = isActive(cur);
+    if (alarmRed) return { cls: &#x27;red&#x27;, label: &#x27;Alarm not answered&#x27; };
+    if (active &amp;&amp; last &amp;&amp; now - last[1] &gt; 3600000) return { cls: &#x27;stale&#x27;, label: &#x27;No update 1h+&#x27; };
+    if (active) return { cls: &#x27;busy&#x27;, label: &#x27;On job&#x27; };
+    if (crew &gt; 0) return { cls: &#x27;free&#x27;, label: &#x27;Available&#x27; };
+    return { cls: &#x27;none&#x27;, label: &#x27;Nobody on&#x27; };
+  }
 
   // ---------- Firebase ----------
   let auth, db, fns;
@@ -1647,7 +1937,7 @@ window.ACCTS_CONFIG = {
 
   window.ACCTS = {
     CFG, STAGES, INTERVALS, NAME, AUTO, TEAMS, TEAM, pad, hm, hms, day, dur, gap, teamName, esc,
-    shiftWindow, nextStart, lateMs, stageTime, resolve, latest, nextStage, intervals, jobStart, isActive,
+    shiftWindow, nextStart, lateMs, stageTime, resolve, latest, nextStage, intervals, jobStart, isActive, teamStatus,
     initFirebase, leadEmail, isLead, call, teamDoc, jobsCol, dutyCol, alertsCol, onDuty, finishJob,
   };
 })();
@@ -1667,12 +1957,15 @@ window.ACCTS_CONFIG = {
   let unsub = [], teamUnsub = [], watchingTeam = null;
 
   // ---------- who am I, and what is my team right now ----------
-  const myTeam = () =&gt; (duty &amp;&amp; duty.until + A.lateMs() &gt; Date.now() ? duty.team : null);
-  const shiftOver = () =&gt; duty &amp;&amp; duty.until &lt;= Date.now();
+  // A shared device is either a permanent station for one team, or a board showing all teams.
+  const station = () =&gt; !!(device &amp;&amp; device.shared &amp;&amp; device.kind === &#x27;station&#x27; &amp;&amp; device.team);
+  const board = () =&gt; !!(device &amp;&amp; device.shared &amp;&amp; device.kind !== &#x27;station&#x27;);
+  const myTeam = () =&gt; (station() ? device.team : duty &amp;&amp; duty.until + A.lateMs() &gt; Date.now() ? duty.team : null);
+  const shiftOver = () =&gt; !station() &amp;&amp; duty &amp;&amp; duty.until &lt;= Date.now();
   const cur = () =&gt; (myTeam() ? boards[myTeam()] || null : null);
   const stamps = () =&gt; A.resolve(cur());
   // After the shift ends you can finish a running job, but you&#x27;re off duty once it&#x27;s done.
-  const working = () =&gt; !!myTeam() &amp;&amp; (!shiftOver() || A.isActive(cur()));
+  const working = () =&gt; station() || (!!myTeam() &amp;&amp; (!shiftOver() || A.isActive(cur())));
 
   auth.onAuthStateChanged(async (user) =&gt; {
     [...unsub, ...dataUnsub, ...teamUnsub].forEach((f) =&gt; f()); unsub = []; dataUnsub = []; teamUnsub = []; watchingTeam = null; duty = null;
@@ -1688,6 +1981,8 @@ window.ACCTS_CONFIG = {
       // Team data is only readable once this phone is registered, so start listening then.
       if (device &amp;&amp; !listening) { listening = true; listen(); }
       if (!device &amp;&amp; listening) { listening = false; dataUnsub.forEach((f) =&gt; f()); dataUnsub = []; teamUnsub.forEach((f) =&gt; f()); teamUnsub = []; watchingTeam = null; duty = null; }
+      if (device) watchTeam();
+      if (board()) view = &#x27;all&#x27;;
       render();
     }, () =&gt; { device = null; render(); }));
     render();
@@ -1801,15 +2096,61 @@ window.ACCTS_CONFIG = {
     const w = A.shiftWindow(team);
     if (!w) return;
     const early = w.start &gt; Date.now();
-    openSheet(`&lt;h2&gt;Start ${esc(team.name)}?&lt;/h2&gt;
+    const roles = A.CFG.roles || [];
+    let role = roles.length === 1 ? roles[0] : null, training = false;
+    openSheet(`&lt;h2&gt;Start ${esc(team.name)}&lt;/h2&gt;
+      ${roles.length ? `&lt;span class=&quot;label&quot;&gt;Your role this shift&lt;/span&gt;&lt;div class=&quot;rolepick&quot;&gt;${roles.map((r) =&gt; `&lt;button class=&quot;rolebtn&quot; data-role=&quot;${esc(r)}&quot; aria-pressed=&quot;${r === role}&quot;&gt;${esc(r)}&lt;/button&gt;`).join(&#x27;&#x27;)}&lt;/div&gt;` : &#x27;&#x27;}
+      &lt;button class=&quot;trainbtn&quot; id=&quot;train&quot; aria-pressed=&quot;false&quot;&gt;&lt;i&gt;&lt;/i&gt;&lt;span&gt;Supernumerary or in training&lt;/span&gt;&lt;/button&gt;
       &lt;p class=&quot;hint&quot;&gt;You&#x27;ll be on duty ${early ? &#x27;from &#x27; + hm(w.start) + &#x27; &#x27; : &#x27;&#x27;}until ${hm(w.end)}${w.end - Date.now() &gt; 12 * 3600000 ? &#x27; tomorrow&#x27; : &#x27;&#x27;}, and get new-job alarms for this team. You come off duty automatically at the end of the shift.&lt;/p&gt;
-      &lt;div class=&quot;actions&quot;&gt;&lt;button class=&quot;btn ghost&quot; id=&quot;cancel&quot;&gt;Cancel&lt;/button&gt;&lt;button class=&quot;btn primary&quot; id=&quot;go&quot;&gt;Start shift&lt;/button&gt;&lt;/div&gt;`, (s) =&gt; {
+      &lt;div class=&quot;actions&quot;&gt;&lt;button class=&quot;btn ghost&quot; id=&quot;cancel&quot;&gt;Cancel&lt;/button&gt;&lt;button class=&quot;btn primary&quot; id=&quot;go&quot; ${roles.length &amp;&amp; !role ? &#x27;disabled&#x27; : &#x27;&#x27;}&gt;Start shift&lt;/button&gt;&lt;/div&gt;`, (s) =&gt; {
+      s.querySelectorAll(&#x27;[data-role]&#x27;).forEach((b) =&gt; b.onclick = () =&gt; {
+        role = b.dataset.role; s.querySelectorAll(&#x27;[data-role]&#x27;).forEach((x) =&gt; x.setAttribute(&#x27;aria-pressed&#x27;, String(x === b)));
+        s.querySelector(&#x27;#go&#x27;).disabled = false;
+      });
+      s.querySelector(&#x27;#train&#x27;).onclick = (e) =&gt; { training = !training; e.currentTarget.setAttribute(&#x27;aria-pressed&#x27;, String(training)); };
       s.querySelector(&#x27;#cancel&#x27;).onclick = closeSheet;
       s.querySelector(&#x27;#go&#x27;).onclick = () =&gt; {
+        if (roles.length &amp;&amp; !role) return;
         closeSheet();
-        A.dutyCol().doc(uid).set({ uid, name: device.name, team: team.id, from: Date.now(), until: w.end, updated: Date.now() }).catch(err);
-        toast(&#x27;On duty: &#x27; + team.name, false);
+        A.dutyCol().doc(uid).set({ uid, name: device.name, team: team.id, role: role || &#x27;&#x27;, training, from: Date.now(), until: w.end, updated: Date.now() }).catch(err);
+        toast(&#x27;On duty: &#x27; + team.name + (role ? &#x27; · &#x27; + role : &#x27;&#x27;), false);
       };
+    });
+  }
+  const who = (d) =&gt; esc(d.name) + (d.role ? &#x27; · &#x27; + esc(d.role) : &#x27;&#x27;) + (d.training ? &#x27; (training)&#x27; : &#x27;&#x27;);
+
+  // ---------- QR codes: scanned inside the app (the iPhone camera app would open Safari instead) ----------
+  // A code is a link: &lt;app address&gt;#join=CODE (personal phones) or #device=CODE (shared devices).
+  function parseCode(text) {
+    const t = String(text || &#x27;&#x27;).trim();
+    const m = /[#?&amp;](join|device)=([^&amp;#\s]+)/i.exec(t);
+    if (m) return { kind: m[1].toLowerCase(), code: decodeURIComponent(m[2]) };
+    return t ? { kind: null, code: t } : null;
+  }
+  function scanQR(onCode) {
+    let stream = null, stopped = false;
+    const stop = () =&gt; { stopped = true; if (stream) stream.getTracks().forEach((t) =&gt; t.stop()); };
+    openSheet(`&lt;h2&gt;Scan the ACCTS QR code&lt;/h2&gt;
+      &lt;video id=&quot;qv&quot; playsinline muted autoplay style=&quot;width:100%;aspect-ratio:1;object-fit:cover;border-radius:12px;background:#000&quot;&gt;&lt;/video&gt;
+      &lt;p class=&quot;hint&quot; id=&quot;qh&quot;&gt;Point the camera at the QR code from the team lead.&lt;/p&gt;
+      &lt;button class=&quot;btn ghost&quot; id=&quot;cancel&quot;&gt;Cancel&lt;/button&gt;`, async (s) =&gt; {
+      s.querySelector(&#x27;#cancel&#x27;).onclick = () =&gt; { stop(); closeSheet(); };
+      try { stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: &#x27;environment&#x27; }, audio: false }); }
+      catch (e) { s.querySelector(&#x27;#qh&#x27;).textContent = &#x27;The camera isn\&#x27;t available. Allow camera access for ACCTS, or type the code instead.&#x27;; return; }
+      if (stopped) { stop(); return; }
+      const v = s.querySelector(&#x27;#qv&#x27;); v.srcObject = stream; try { await v.play(); } catch (e) {}
+      const c = document.createElement(&#x27;canvas&#x27;); const ctx = c.getContext(&#x27;2d&#x27;, { willReadFrequently: true });
+      const loop = () =&gt; {
+        if (stopped) return;
+        if (v.videoWidth) {
+          const k = Math.min(1, 640 / v.videoWidth); c.width = v.videoWidth * k; c.height = v.videoHeight * k;
+          ctx.drawImage(v, 0, 0, c.width, c.height);
+          const r = window.jsQR &amp;&amp; jsQR(ctx.getImageData(0, 0, c.width, c.height).data, c.width, c.height, { inversionAttempts: &#x27;dontInvert&#x27; });
+          if (r &amp;&amp; r.data) { stop(); closeSheet(); onCode(r.data); return; }
+        }
+        requestAnimationFrame(loop);
+      };
+      loop();
     });
   }
   function endShift() {
@@ -1850,22 +2191,41 @@ window.ACCTS_CONFIG = {
   }
 
   // ---------- screens ----------
+  let regMode = &#x27;person&#x27;, regCode = &#x27;&#x27;;
+  { const p = parseCode(location.hash); if (p &amp;&amp; p.kind) { regMode = p.kind === &#x27;device&#x27; ? &#x27;shared&#x27; : &#x27;person&#x27;; regCode = p.code; } }
   function renderRegister() {
-    $(&#x27;tabs&#x27;).hidden = true; $(&#x27;teamline&#x27;).textContent = &#x27;ACCTS&#x27;; $(&#x27;jobline&#x27;).textContent = &#x27;Set up this phone&#x27;;
+    $(&#x27;tabs&#x27;).hidden = true; $(&#x27;teamline&#x27;).textContent = &#x27;ACCTS · &#x27; + esc(A.CFG.serviceName || &#x27;&#x27;); $(&#x27;jobline&#x27;).textContent = &#x27;Set up&#x27;;
+    const ios = /iPhone|iPad|iPod/.test(navigator.userAgent) &amp;&amp; !navigator.standalone &amp;&amp; !matchMedia(&#x27;(display-mode: standalone)&#x27;).matches;
+    const shared = regMode === &#x27;shared&#x27;;
     $(&#x27;view&#x27;).innerHTML = `&lt;section class=&quot;section login&quot;&gt;
-      &lt;span class=&quot;label&quot;&gt;Set up this phone&lt;/span&gt;
-      &lt;p class=&quot;hint&quot;&gt;One time only. Ask the team lead for the join code. Your Pushsafer device ID is in the Pushsafer app and on pushsafer.com under Devices.&lt;/p&gt;
-      &lt;label class=&quot;label&quot; for=&quot;code&quot;&gt;Join code&lt;/label&gt;&lt;input class=&quot;field&quot; id=&quot;code&quot; autocomplete=&quot;off&quot; autocapitalize=&quot;off&quot;&gt;
-      &lt;label class=&quot;label&quot; for=&quot;nm&quot;&gt;Your name&lt;/label&gt;&lt;input class=&quot;field&quot; id=&quot;nm&quot; autocomplete=&quot;name&quot; placeholder=&quot;As the team will see it&quot;&gt;
-      &lt;label class=&quot;label&quot; for=&quot;pid&quot;&gt;Pushsafer device ID&lt;/label&gt;&lt;input class=&quot;field&quot; id=&quot;pid&quot; inputmode=&quot;numeric&quot; autocomplete=&quot;off&quot;&gt;
+      ${ios ? &#x27;&lt;div class=&quot;alarm potential wait&quot;&gt;&lt;b&gt;Add ACCTS to your Home Screen first&lt;/b&gt;&lt;span&gt;In Safari tap Share, then Add to Home Screen. Open ACCTS from its new icon and set it up there.&lt;/span&gt;&lt;/div&gt;&#x27; : &#x27;&#x27;}
+      &lt;span class=&quot;label&quot;&gt;${shared ? &#x27;Set up a shared device&#x27; : &#x27;Set up your phone&#x27;}&lt;/span&gt;
+      &lt;p class=&quot;hint&quot;&gt;${shared ? &#x27;For a base PC or tablet that stays signed in. The team lead makes a set-up code for it on the dashboard.&#x27;
+        : &#x27;One time only. Scan the ACCTS QR code from the team lead, then add your name and your Pushsafer device ID (shown in the Pushsafer app).&#x27;}&lt;/p&gt;
+      &lt;button class=&quot;btn primary&quot; id=&quot;scan&quot;&gt;Scan QR code&lt;/button&gt;
+      &lt;label class=&quot;label&quot; for=&quot;code&quot;&gt;${shared ? &#x27;Set-up code&#x27; : &#x27;Join code&#x27;}&lt;/label&gt;&lt;input class=&quot;field&quot; id=&quot;code&quot; autocomplete=&quot;off&quot; autocapitalize=&quot;off&quot; value=&quot;${esc(regCode)}&quot;&gt;
+      ${shared ? &#x27;&#x27; : `&lt;label class=&quot;label&quot; for=&quot;nm&quot;&gt;Your name&lt;/label&gt;&lt;input class=&quot;field&quot; id=&quot;nm&quot; autocomplete=&quot;name&quot; placeholder=&quot;As the team will see it&quot;&gt;
+      &lt;label class=&quot;label&quot; for=&quot;pid&quot;&gt;Pushsafer device ID&lt;/label&gt;&lt;input class=&quot;field&quot; id=&quot;pid&quot; inputmode=&quot;numeric&quot; autocomplete=&quot;off&quot;&gt;`}
       &lt;p class=&quot;err&quot; id=&quot;rerr&quot;&gt;&lt;/p&gt;
-      &lt;button class=&quot;btn primary&quot; id=&quot;go&quot;&gt;Register this phone&lt;/button&gt;
+      &lt;button class=&quot;btn ${shared ? &#x27;primary&#x27; : &#x27;&#x27;}&quot; id=&quot;go&quot;&gt;${shared ? &#x27;Set up this device&#x27; : &#x27;Register&#x27;}&lt;/button&gt;
+      &lt;button class=&quot;btn ghost&quot; id=&quot;mode&quot;&gt;${shared ? &#x27;This is my own phone instead&#x27; : &#x27;Setting up a shared PC or tablet?&#x27;}&lt;/button&gt;
     &lt;/section&gt;`;
+    $(&#x27;mode&#x27;).onclick = () =&gt; { regMode = shared ? &#x27;person&#x27; : &#x27;shared&#x27;; regCode = &#x27;&#x27;; renderRegister(); };
+    $(&#x27;scan&#x27;).onclick = () =&gt; scanQR((text) =&gt; {
+      const p = parseCode(text); if (!p) return;
+      if (p.kind) regMode = p.kind === &#x27;device&#x27; ? &#x27;shared&#x27; : &#x27;person&#x27;;
+      regCode = p.code; renderRegister(); $(&#x27;rerr&#x27;).textContent = &#x27;Code scanned.&#x27;;
+      const next = $(&#x27;nm&#x27;); if (next) next.focus();
+    });
     $(&#x27;go&#x27;).onclick = async () =&gt; {
-      const e = $(&#x27;rerr&#x27;); e.textContent = &#x27;Registering…&#x27;; $(&#x27;go&#x27;).disabled = true;
-      try { await A.call(&#x27;register&#x27;, { code: $(&#x27;code&#x27;).value, name: $(&#x27;nm&#x27;).value, pushId: $(&#x27;pid&#x27;).value }); e.textContent = &#x27;&#x27;; }
-      catch (x) { e.textContent = /internal|unavailable|network/i.test(x.code || &#x27;&#x27;) ? &#x27;No signal. Registration needs a connection.&#x27; : String(x.message || &#x27;Could not register.&#x27;).replace(/\s*\[\d+\]$/, &#x27;&#x27;); }
-      if ($(&#x27;go&#x27;)) $(&#x27;go&#x27;).disabled = false; // the screen has moved on once registration succeeds
+      const e = $(&#x27;rerr&#x27;); e.textContent = &#x27;Setting up…&#x27;; $(&#x27;go&#x27;).disabled = true;
+      const code = (parseCode($(&#x27;code&#x27;).value) || {}).code || &#x27;&#x27;;
+      try {
+        if (shared) await A.call(&#x27;registerShared&#x27;, { code });
+        else await A.call(&#x27;register&#x27;, { code, name: $(&#x27;nm&#x27;).value, pushId: $(&#x27;pid&#x27;).value });
+        e.textContent = &#x27;&#x27;; history.replaceState(null, &#x27;&#x27;, location.pathname + location.search);
+      } catch (x) { e.textContent = /internal|unavailable|network/i.test(x.code || &#x27;&#x27;) ? &#x27;No signal. Set-up needs a connection.&#x27; : String(x.message || &#x27;Could not set up.&#x27;).replace(/\s*\[\d+\]$/, &#x27;&#x27;); }
+      if ($(&#x27;go&#x27;)) $(&#x27;go&#x27;).disabled = false; // the screen has moved on once set-up succeeds
     };
   }
 
@@ -1876,7 +2236,7 @@ window.ACCTS_CONFIG = {
     const mine = a.targets &amp;&amp; a.targets[uid]; const acked = a.acks &amp;&amp; a.acks[uid];
     const names = Object.keys(a.acks || {}).filter((u) =&gt; a.targets &amp;&amp; a.targets[u]).map((u) =&gt; esc(a.targets[u].name));
     if (a.status === &#x27;active&#x27;) {
-      if (mine &amp;&amp; !acked) return `&lt;button class=&quot;alarm&quot; id=&quot;ackbtn&quot; data-alert=&quot;${a.id}&quot;&gt;&lt;b&gt;NEW JOB&lt;/b&gt;&lt;span&gt;Alarm sent ${hm(a.confirmedAt || a.createdAt)} · tap to acknowledge&lt;/span&gt;&lt;/button&gt;`;
+      if (mine &amp;&amp; !acked) return `&lt;div class=&quot;alarm&quot;&gt;&lt;b&gt;NEW JOB&lt;/b&gt;&lt;span&gt;Alarm sent ${hm(a.confirmedAt || a.createdAt)} · waiting for you to acknowledge&lt;/span&gt;&lt;/div&gt;`;
       return `&lt;div class=&quot;alarm wait&quot;&gt;&lt;b&gt;New job alarm ${hm(a.confirmedAt || a.createdAt)}&lt;/b&gt;&lt;span&gt;${names.length} of ${a.needed} acknowledged${acked ? &#x27; · you have&#x27; : &#x27;&#x27;}&lt;/span&gt;&lt;/div&gt;`;
     }
     if (a.status === &#x27;potential&#x27;) {
@@ -1891,6 +2251,40 @@ window.ACCTS_CONFIG = {
         : `&lt;div class=&quot;alarm wait&quot;&gt;&lt;b&gt;Alarm cancelled ${hm(a.cancelledAt)}&lt;/b&gt;&lt;span&gt;The team lead cancelled the job alarm.&lt;/span&gt;&lt;/div&gt;`;
     return &#x27;&#x27;;
   }
+  // ---------- confirmed-job alarm: full screen, sounding until acknowledged ----------
+  // iPhones only let a web app make sound after a tap, so any tap in the app arms the alarm sound.
+  let audio = null, sirenTimer = null;
+  const armAudio = () =&gt; { try { if (!audio) audio = new (window.AudioContext || window.webkitAudioContext)(); if (audio.state === &#x27;suspended&#x27;) audio.resume(); } catch (e) {} };
+  document.addEventListener(&#x27;pointerdown&#x27;, armAudio, true);
+  function sirenBurst() {
+    if (!audio || audio.state !== &#x27;running&#x27; || window.ACCTS_NO_APP_SIREN) return;
+    const t0 = audio.currentTime;
+    for (let i = 0; i &lt; 4; i++) { // two-tone, like an emergency vehicle
+      const o = audio.createOscillator(), g = audio.createGain();
+      o.type = &#x27;square&#x27;; o.frequency.value = i % 2 ? 740 : 988; o.connect(g); g.connect(audio.destination);
+      g.gain.setValueAtTime(0.0001, t0 + i * 0.25); g.gain.exponentialRampToValueAtTime(0.3, t0 + i * 0.25 + 0.02);
+      g.gain.setValueAtTime(0.3, t0 + i * 0.25 + 0.2); g.gain.exponentialRampToValueAtTime(0.0001, t0 + i * 0.25 + 0.24);
+      o.start(t0 + i * 0.25); o.stop(t0 + i * 0.25 + 0.25);
+    }
+  }
+  const ringing = () =&gt; { const a = alerts[0]; return a &amp;&amp; a.status === &#x27;active&#x27; &amp;&amp; a.targets &amp;&amp; a.targets[uid] &amp;&amp; !(a.acks &amp;&amp; a.acks[uid]) &amp;&amp; working() ? a : null; };
+  function paintTakeover() {
+    const a = ringing(); const el = $(&#x27;takeover&#x27;);
+    if (!a) { el.hidden = true; el.innerHTML = &#x27;&#x27;; clearInterval(sirenTimer); sirenTimer = null; return; }
+    if (el.hidden || el.dataset.alert !== a.id) {
+      el.dataset.alert = a.id;
+      el.innerHTML = `&lt;div class=&quot;tk-in&quot;&gt;&lt;b&gt;NEW JOB&lt;/b&gt;&lt;span class=&quot;tk-team&quot;&gt;${esc(A.teamName(a.team))}&lt;/span&gt;
+        &lt;span class=&quot;tk-time&quot; id=&quot;tk-time&quot;&gt;&lt;/span&gt;
+        &lt;button class=&quot;tk-ack&quot; id=&quot;ackbtn&quot; data-alert=&quot;${a.id}&quot;&gt;ACKNOWLEDGE&lt;/button&gt;
+        &lt;span class=&quot;tk-hint&quot;&gt;Tap to acknowledge. The alarm keeps sounding until you do.&lt;/span&gt;&lt;/div&gt;`;
+      el.hidden = false;
+      el.querySelector(&#x27;#ackbtn&#x27;).onclick = () =&gt; { const x = alerts.find((y) =&gt; y.id === a.id); if (x) acknowledge(x); el.hidden = true; clearInterval(sirenTimer); sirenTimer = null; };
+    }
+    $(&#x27;tk-time&#x27;).textContent = &#x27;Alarm sent &#x27; + hm(a.confirmedAt || a.createdAt) + &#x27; · &#x27; + dur(Date.now() - (a.confirmedAt || a.createdAt)) + &#x27; ago&#x27;;
+    if (!sirenTimer) { sirenBurst(); sirenTimer = setInterval(sirenBurst, 1000); }
+    try { if (navigator.vibrate) navigator.vibrate([400, 200, 400]); } catch (e) {}
+  }
+
   function syncState() {
     if (navigator.onLine === false) return [&#x27;wait&#x27;, pending ? &#x27;No signal · saved on this phone, sends when signal returns&#x27; : &#x27;No signal · times still record&#x27;];
     if (pending) return [&#x27;wait&#x27;, &#x27;Sending…&#x27;];
@@ -1930,8 +2324,10 @@ window.ACCTS_CONFIG = {
   function renderJob() {
     if (!working()) return renderOffDuty();
     const c = cur(); const st = stamps(); const active = A.isActive(c); const [cls, txt] = syncState();
+    const crew = allDuty.filter((d) =&gt; d.team === myTeam() &amp;&amp; A.onDuty(d)).map(who);
     return `${alertBanner()}
       &lt;div class=&quot;sync ${cls}&quot;&gt;&lt;i&gt;&lt;/i&gt;&lt;span&gt;${txt}&lt;/span&gt;&lt;/div&gt;
+      ${station() ? `&lt;section class=&quot;section&quot;&gt;&lt;span class=&quot;label&quot;&gt;On duty now&lt;/span&gt;&lt;p class=&quot;hint&quot;&gt;${crew.length ? crew.join(&#x27;&lt;br&gt;&#x27;) : &#x27;Nobody signed on&#x27;}&lt;/p&gt;&lt;/section&gt;` : &#x27;&#x27;}
       &lt;section class=&quot;section&quot;&gt;
         &lt;div class=&quot;row&quot;&gt;&lt;span class=&quot;label&quot;&gt;Stages&lt;/span&gt;
           ${undoStack.length ? &#x27;&lt;button class=&quot;btn ghost small&quot; id=&quot;undo&quot;&gt;Undo last&lt;/button&gt;&#x27; : &#x27;&#x27;}&lt;/div&gt;
@@ -1941,7 +2337,7 @@ window.ACCTS_CONFIG = {
       ${ivBlock(st)}
       &lt;section class=&quot;section&quot;&gt;
         ${active ? &#x27;&lt;button class=&quot;btn primary&quot; id=&quot;finish&quot;&gt;Finish job&lt;/button&gt;&#x27; : &#x27;&#x27;}
-        ${shiftOver() ? &#x27;&lt;p class=&quot;hint&quot;&gt;Your shift has ended. Finish the job to go off duty.&lt;/p&gt;&#x27; : &#x27;&lt;button class=&quot;btn ghost&quot; id=&quot;endshift&quot;&gt;End my shift&lt;/button&gt;&#x27;}
+        ${station() ? &#x27;&#x27; : shiftOver() ? &#x27;&lt;p class=&quot;hint&quot;&gt;Your shift has ended. Finish the job to go off duty.&lt;/p&gt;&#x27; : &#x27;&lt;button class=&quot;btn ghost&quot; id=&quot;endshift&quot;&gt;End my shift&lt;/button&gt;&#x27;}
       &lt;/section&gt;`;
   }
   function renderAll() {
@@ -1950,9 +2346,10 @@ window.ACCTS_CONFIG = {
     return `${working() ? alertBanner() : &#x27;&#x27;}&lt;section class=&quot;section&quot;&gt;&lt;span class=&quot;label&quot;&gt;Teams on shift&lt;/span&gt;&lt;div class=&quot;teamcards&quot;&gt;${shown.map((t) =&gt; {
       const c = boards[t.id]; const st = A.resolve(c); const last = A.latest(st); const active = A.isActive(c);
       const since = last ? now - last[1] : null;
-      const crew = allDuty.filter((d) =&gt; d.team === t.id &amp;&amp; A.onDuty(d, now)).map((d) =&gt; esc(d.name));
-      return `&lt;div class=&quot;teamcard ${t.id === myTeam() ? &#x27;mine&#x27; : &#x27;&#x27;}&quot;&gt;
-        &lt;b&gt;${esc(t.name)}${t.id === myTeam() ? &#x27; (you)&#x27; : &#x27;&#x27;}&lt;/b&gt;&lt;span class=&quot;chip ${active ? &#x27;on&#x27; : &#x27;&#x27;}&quot;&gt;${active ? &#x27;On job&#x27; : &#x27;Available&#x27;}&lt;/span&gt;
+      const crew = allDuty.filter((d) =&gt; d.team === t.id &amp;&amp; A.onDuty(d, now)).map(who);
+      const ts = A.teamStatus({ cur: c, crew: crew.length, now });
+      return `&lt;div class=&quot;teamcard ${ts.cls} ${t.id === myTeam() ? &#x27;mine&#x27; : &#x27;&#x27;}&quot;&gt;
+        &lt;b&gt;${esc(t.name)}${t.id === myTeam() ? &#x27; (you)&#x27; : &#x27;&#x27;}&lt;/b&gt;&lt;span class=&quot;chip ${ts.cls}&quot;&gt;${ts.label}&lt;/span&gt;
         &lt;span class=&quot;st&quot;&gt;${last ? NAME[last[0]] : active ? &#x27;Job started&#x27; : &#x27;No active job&#x27;}&lt;/span&gt;
         &lt;span class=&quot;meta&quot;&gt;${crew.length ? crew.join(&#x27;, &#x27;) : &#x27;Nobody signed on&#x27;}&lt;/span&gt;
         &lt;span class=&quot;since ${since &gt; 3600000 ? &#x27;stale&#x27; : &#x27;&#x27;}&quot;&gt;${last ? dur(since) + &#x27; ago&#x27; : &#x27;&#x27;}&lt;/span&gt;
@@ -1965,7 +2362,9 @@ window.ACCTS_CONFIG = {
       const s = j.stamps || {}; const v = Object.values(s); const a = v.length ? Math.min(...v) : j.started; const b = v.length ? Math.max(...v) : j.finished;
       return `&lt;button class=&quot;job&quot; data-job=&quot;${j.id}&quot;&gt;&lt;b&gt;${day(a)} · ${hm(a)}&lt;/b&gt;&lt;span class=&quot;dur&quot;&gt;${dur(b - a)}&lt;/span&gt;&lt;span&gt;${hm(a)}–${hm(b)} · ${v.length} times&lt;/span&gt;&lt;span&gt;&lt;/span&gt;&lt;/button&gt;`;
     }).join(&#x27;&#x27;)}&lt;/div&gt;` : &#x27;&lt;div class=&quot;empty&quot;&gt;Finished jobs for your team appear here.&lt;/div&gt;&#x27;;
-    return `&lt;section class=&quot;section&quot;&gt;&lt;span class=&quot;label&quot;&gt;${t ? esc(A.teamName(t)) + &#x27; · finished jobs&#x27; : &#x27;History&#x27;}&lt;/span&gt;${list}&lt;/section&gt;`;
+    const dev = device &amp;&amp; device.shared ? `&lt;section class=&quot;section&quot;&gt;&lt;span class=&quot;label&quot;&gt;This device&lt;/span&gt;
+      &lt;p class=&quot;hint&quot;&gt;Shared device “${esc(device.name)}” · ${station() ? &#x27;station for &#x27; + esc(A.teamName(device.team)) : &#x27;board&#x27;}. It stays signed in. The team lead can remove it from the dashboard.&lt;/p&gt;&lt;/section&gt;` : &#x27;&#x27;;
+    return `&lt;section class=&quot;section&quot;&gt;&lt;span class=&quot;label&quot;&gt;${t ? esc(A.teamName(t)) + &#x27; · finished jobs&#x27; : &#x27;History&#x27;}&lt;/span&gt;${list}&lt;/section&gt;${dev}`;
   }
   function renderDetail() {
     const j = jobs.find((x) =&gt; x.id === detail); if (!j) { view = &#x27;history&#x27;; return renderHistory(); }
@@ -1981,7 +2380,7 @@ window.ACCTS_CONFIG = {
     if (!uid || device === undefined) return;
     if (device === null) { renderRegister(); return; }
     if ($(&#x27;scrim&#x27;).hidden === false &amp;&amp; $(&#x27;sheet&#x27;).querySelector(&#x27;input&#x27;)) { tick(); return; } // don&#x27;t wipe a form being typed in
-    $(&#x27;tabs&#x27;).hidden = false;
+    $(&#x27;tabs&#x27;).hidden = board(); if (board()) view = &#x27;all&#x27;;
     const v = $(&#x27;view&#x27;);
     v.innerHTML = view === &#x27;job&#x27; ? renderJob() : view === &#x27;all&#x27; ? renderAll() : view === &#x27;detail&#x27; ? renderDetail() : renderHistory();
     document.querySelectorAll(&#x27;[data-tab]&#x27;).forEach((b) =&gt; b.setAttribute(&#x27;aria-current&#x27;, (b.dataset.tab === view || (view === &#x27;detail&#x27; &amp;&amp; b.dataset.tab === &#x27;history&#x27;)) ? &#x27;page&#x27; : &#x27;false&#x27;));
@@ -1996,6 +2395,7 @@ window.ACCTS_CONFIG = {
     on(&#x27;test&#x27;, () =&gt; testAlarm(v.querySelector(&#x27;#test&#x27;), v.querySelector(&#x27;#testout&#x27;)));
     on(&#x27;back&#x27;, () =&gt; { view = &#x27;history&#x27;; render(); });
     on(&#x27;ackbtn&#x27;, () =&gt; { const a = alerts.find((x) =&gt; x.id === v.querySelector(&#x27;#ackbtn&#x27;).dataset.alert); if (a) acknowledge(a); });
+    paintTakeover();
   }
   document.querySelectorAll(&#x27;[data-tab]&#x27;).forEach((b) =&gt; b.onclick = () =&gt; { view = b.dataset.tab; render(); scrollTo(0, 0); });
   window.addEventListener(&#x27;online&#x27;, render); window.addEventListener(&#x27;offline&#x27;, render);
@@ -2004,13 +2404,16 @@ window.ACCTS_CONFIG = {
   function tick() {
     const now = Date.now(); $(&#x27;clock&#x27;).textContent = hms(now);
     if (!device) return;
+    if (!$(&#x27;takeover&#x27;).hidden) paintTakeover();
     const w = working();
     const changed = wasWorking !== null &amp;&amp; w !== wasWorking;
     wasWorking = w;
     if (changed) { watchTeam(); render(); return; } // shift started, ended, or a late job finished
+    if (board()) { $(&#x27;teamline&#x27;).textContent = &#x27;ACCTS · &#x27; + (A.CFG.serviceName || &#x27;Board&#x27;); $(&#x27;jobline&#x27;).textContent = device.name + &#x27; · all teams&#x27;; return; }
     if (!w) { $(&#x27;teamline&#x27;).textContent = &#x27;ACCTS · Off duty&#x27;; $(&#x27;jobline&#x27;).textContent = device.name; return; }
     const c = cur(); const st = stamps();
     $(&#x27;teamline&#x27;).textContent = &#x27;ACCTS · &#x27; + A.teamName(myTeam());
+    if (station()) { $(&#x27;jobline&#x27;).textContent = device.name + &#x27; · shared station&#x27; + (A.isActive(c) ? &#x27; · job &#x27; + dur(now - A.jobStart(st, c)) : &#x27;&#x27;); return; }
     $(&#x27;jobline&#x27;).textContent = (shiftOver() ? &#x27;Shift ended &#x27; + hm(duty.until) + &#x27; · finishing job&#x27; : &#x27;On duty until &#x27; + hm(duty.until))
       + (A.isActive(c) ? &#x27; · job &#x27; + dur(now - A.jobStart(st, c)) : &#x27;&#x27;);
   }
@@ -2037,10 +2440,10 @@ window.ACCTS_CONFIG = {
         <h2>Things to try</h2>
         <ol>
           <li>On the dashboard below, find <b>Night 20–08</b> and press <b>Potential job</b>, then <b>Send potential job</b>. Both phones get a normal notification and an amber banner. Tap <b>SEEN</b> on one.</li>
-          <li>Press <b>Confirm job · sound alarm</b>. The phones get a loud Critical Alert that repeats every 30 seconds until 2 of the 3 night crew acknowledge. Tap <b>ACKNOWLEDGE</b> on Sam and on Jo.</li>
+          <li>Press <b>Confirm job · sound alarm</b>. Each phone turns into a flashing red <b>NEW JOB</b> screen that sounds until <b>ACKNOWLEDGE</b> is tapped, and Pushsafer repeats the Critical Alert every 30 seconds. 2 of the 3 night crew must acknowledge: tap it on Sam and on Jo.</li>
           <li><b>Alert sent</b> and <b>Alert acknowledged</b> fill in by themselves. Then tap the stages as the job goes on.</li>
           <li>Turn a phone's signal off and tap a stage. The phone keeps it and sends it when the signal comes back.</li>
-          <li>Open <b>All teams</b> on a phone. Day 10–22 C is flagged because it has gone over an hour without a new time.</li>
+          <li>Open <b>All teams</b> on a phone. Colours show each team's state: green available, blue on a job, amber no update for over an hour (Day 10–22 C), red alarm not answered.</li>
           <li>Finish the job, or tap <b>End my shift</b> to see the sign-on screen.</li>
         </ol>
         <p>Click the dashboard once to allow its chime. Turn your sound on to hear the phone alarm.</p>
@@ -2067,7 +2470,7 @@ window.ACCTS_CONFIG = {
   --bg: #0e1316; --surface: #172026; --raise: #22303a; --line: #2a3741;
   --fg: #e9eef1; --muted: #8c9ba5;
   --accent: #f5b83d; --on-accent: #1d1400; --accent-ink: #f5b83d;
-  --done: #47c38f; --danger: #f06464; --warn: #f5b83d;
+  --done: #47c38f; --danger: #f06464; --warn: #f5b83d; --busy: #5aa9f0;
   --font: -apple-system, BlinkMacSystemFont, &quot;SF Pro Text&quot;, &quot;Segoe UI&quot;, Roboto, Helvetica, Arial, sans-serif;
   --mono: ui-monospace, &quot;SF Mono&quot;, Menlo, Consolas, monospace;
   color-scheme: dark;
@@ -2077,14 +2480,14 @@ window.ACCTS_CONFIG = {
     --bg: #eef1f3; --surface: #ffffff; --raise: #e3e8eb; --line: #d3dade;
     --fg: #11181d; --muted: #57656f;
     --accent: #f0ad1f; --on-accent: #1d1400; --accent-ink: #8a5a00;
-    --done: #1d8a5c; --danger: #c43a3a; --warn: #a86a00; color-scheme: light;
+    --done: #1d8a5c; --danger: #c43a3a; --warn: #a86a00; --busy: #1f63b8; color-scheme: light;
   }
 }
 :root[data-theme=&quot;light&quot;] {
   --bg: #eef1f3; --surface: #ffffff; --raise: #e3e8eb; --line: #d3dade;
   --fg: #11181d; --muted: #57656f;
   --accent: #f0ad1f; --on-accent: #1d1400; --accent-ink: #8a5a00;
-  --done: #1d8a5c; --danger: #c43a3a; --warn: #a86a00; color-scheme: light;
+  --done: #1d8a5c; --danger: #c43a3a; --warn: #a86a00; --busy: #1f63b8; color-scheme: light;
 }
 :root { padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px); }
 [hidden] { display: none !important; }
@@ -2174,7 +2577,15 @@ button.stage:active { transform: scale(.985); }
 .teamcard .since { font-family: var(--mono); font-weight: 600; text-align: right; }
 .stale { color: var(--warn); }
 .chip { font-size: 12px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; padding: 3px 8px; border-radius: 999px; background: var(--raise); color: var(--muted); align-self: center; justify-self: end; }
-.chip.on { background: color-mix(in srgb, var(--done) 20%, transparent); color: var(--done); }
+/* Team status: green available, blue on a job, amber no update for an hour, red alarm not answered, grey nobody on */
+.chip.free { background: color-mix(in srgb, var(--done) 20%, transparent); color: var(--done); }
+.chip.busy { background: color-mix(in srgb, var(--busy) 22%, transparent); color: var(--busy); }
+.chip.stale { background: color-mix(in srgb, var(--warn) 22%, transparent); color: var(--warn); }
+.chip.red { background: var(--danger); color: #fff; }
+.teamcard.free { border-left: 5px solid var(--done); }
+.teamcard.busy { border-left: 5px solid var(--busy); }
+.teamcard.stale { border-left: 5px solid var(--warn); color: var(--fg); }
+.teamcard.none { border-left: 5px solid var(--line); }
 
 .jobs { display: flex; flex-direction: column; gap: 6px; }
 .job { display: grid; grid-template-columns: 1fr auto; gap: 2px 12px; padding: 12px 14px; text-align: left; width: 100%; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; }
@@ -2243,6 +2654,27 @@ button.alarm { min-height: 110px; animation: alarmpulse 1s ease-in-out infinite 
 .alarm.potential { background: var(--accent); color: var(--on-accent); }
 button.alarm.potential { min-height: 96px; animation: none; }
 .alarm.potential.wait { background: color-mix(in srgb, var(--accent) 18%, var(--surface)); color: var(--fg); border: 1px solid var(--accent); }
+
+/* Role choice at sign-on */
+.rolepick { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px; }
+.rolebtn { min-height: 56px; padding: 8px 12px; border-radius: 12px; border: 1px solid var(--line); background: var(--surface); font-size: 16px; font-weight: 700; text-align: left; }
+.rolebtn[aria-pressed=&quot;true&quot;] { background: var(--accent); color: var(--on-accent); border-color: transparent; }
+.trainbtn { display: flex; align-items: center; gap: 10px; min-height: 48px; padding: 8px 12px; border-radius: 10px; border: 1px solid var(--line); background: transparent; font-size: 15px; font-weight: 600; text-align: left; }
+.trainbtn i { width: 22px; height: 22px; border-radius: 6px; border: 2px solid var(--muted); flex: none; }
+.trainbtn[aria-pressed=&quot;true&quot;] i { background: var(--accent); border-color: var(--accent); }
+
+/* Confirmed-job alarm: takes over the whole screen until acknowledged */
+.takeover { position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; background: #b3121b; color: #fff;
+  padding: max(24px, env(safe-area-inset-top, 0px)) max(16px, env(safe-area-inset-right, 0px)) max(24px, env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px));
+  animation: tkflash 1s steps(1) infinite; text-align: center; }
+@keyframes tkflash { 50% { background: #e5383b; } }
+.tk-in { display: flex; flex-direction: column; align-items: center; gap: 14px; width: 100%; max-width: 480px; }
+.tk-in b { font-size: 64px; line-height: 1; letter-spacing: .04em; }
+.tk-team { font-size: 28px; font-weight: 800; }
+.tk-time { font-size: 18px; font-weight: 600; opacity: .95; font-variant-numeric: tabular-nums; }
+.tk-ack { width: 100%; min-height: 120px; margin-top: 16px; border-radius: 20px; border: 4px solid #fff; background: #fff; color: #b3121b; font-size: 30px; font-weight: 900; letter-spacing: .06em; }
+.tk-hint { font-size: 15px; opacity: .9; }
+@media (prefers-reduced-motion: reduce) { .takeover { animation: none; } }
 &lt;/style&gt;
 &lt;style&gt;
   /* Layout: alarm and alert controls on top, up to four team columns on a desk screen (two on a tablet, one on a phone), then recent jobs and settings. */
@@ -2251,8 +2683,10 @@ button.alarm.potential { min-height: 96px; animation: none; }
   @media (min-width: 720px) { .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
   @media (min-width: 1200px) { .grid { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
   .panel { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 14px; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
-  .panel.on { border-color: color-mix(in srgb, var(--done) 45%, var(--line)); }
-  .panel.stale { border-color: color-mix(in srgb, var(--warn) 70%, var(--line)); }
+  .panel { border-top: 6px solid var(--line); }
+  .panel.free { border-top-color: var(--done); }
+  .panel.busy { border-top-color: var(--busy); }
+  .panel.stale { border-top-color: var(--warn); border-color: color-mix(in srgb, var(--warn) 70%, var(--line)); color: var(--fg); }
   .panel.red { border-color: var(--danger); box-shadow: 0 0 0 2px color-mix(in srgb, var(--danger) 40%, transparent); }
   .ph { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
   .ph h2 { margin: 0; font-size: 18px; }
@@ -2310,6 +2744,13 @@ button.alarm.potential { min-height: 96px; animation: none; }
   .setgrid &gt; div { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
   .devs td .btn { margin-left: 4px; }
   .login { margin: 0 auto; }
+  .qrcard { display: flex; gap: 16px; align-items: flex-start; flex-wrap: wrap; padding: 12px; border: 1px solid var(--line); border-radius: 12px; margin-block: 8px 14px; }
+  .qrcard .qr { width: 160px; flex: none; background: #fff; border-radius: 8px; padding: 6px; }
+  .qrcard .qr svg { width: 100%; height: auto; display: block; }
+  .qrcard &gt; div:last-child { display: flex; flex-direction: column; gap: 6px; min-width: 0; flex: 1 1 240px; }
+  .qrcard &gt; div:last-child .btn { align-self: flex-start; }
+  .shareform { display: grid; grid-template-columns: 1fr 1.4fr auto; gap: 8px; margin-block: 8px; }
+  @media (max-width: 720px) { .shareform { grid-template-columns: 1fr; } }
 &lt;/style&gt;
 &lt;/head&gt;
 &lt;body&gt;
@@ -2322,6 +2763,2350 @@ button.alarm.potential { min-height: 96px; animation: none; }
 &lt;/header&gt;
 &lt;main class=&quot;board&quot; id=&quot;view&quot;&gt;&lt;/main&gt;
 
+&lt;script&gt;//---------------------------------------------------------------------
+//
+// QR Code Generator for JavaScript
+//
+// Copyright (c) 2009 Kazuhiko Arase
+//
+// URL: http://www.d-project.com/
+//
+// Licensed under the MIT license:
+//  http://www.opensource.org/licenses/mit-license.php
+//
+// The word &#x27;QR Code&#x27; is registered trademark of
+// DENSO WAVE INCORPORATED
+//  http://www.denso-wave.com/qrcode/faqpatent-e.html
+//
+//---------------------------------------------------------------------
+
+var qrcode = function() {
+
+  //---------------------------------------------------------------------
+  // qrcode
+  //---------------------------------------------------------------------
+
+  /**
+   * qrcode
+   * @param typeNumber 1 to 40
+   * @param errorCorrectionLevel &#x27;L&#x27;,&#x27;M&#x27;,&#x27;Q&#x27;,&#x27;H&#x27;
+   */
+  var qrcode = function(typeNumber, errorCorrectionLevel) {
+
+    var PAD0 = 0xEC;
+    var PAD1 = 0x11;
+
+    var _typeNumber = typeNumber;
+    var _errorCorrectionLevel = QRErrorCorrectionLevel[errorCorrectionLevel];
+    var _modules = null;
+    var _moduleCount = 0;
+    var _dataCache = null;
+    var _dataList = [];
+
+    var _this = {};
+
+    var makeImpl = function(test, maskPattern) {
+
+      _moduleCount = _typeNumber * 4 + 17;
+      _modules = function(moduleCount) {
+        var modules = new Array(moduleCount);
+        for (var row = 0; row &lt; moduleCount; row += 1) {
+          modules[row] = new Array(moduleCount);
+          for (var col = 0; col &lt; moduleCount; col += 1) {
+            modules[row][col] = null;
+          }
+        }
+        return modules;
+      }(_moduleCount);
+
+      setupPositionProbePattern(0, 0);
+      setupPositionProbePattern(_moduleCount - 7, 0);
+      setupPositionProbePattern(0, _moduleCount - 7);
+      setupPositionAdjustPattern();
+      setupTimingPattern();
+      setupTypeInfo(test, maskPattern);
+
+      if (_typeNumber &gt;= 7) {
+        setupTypeNumber(test);
+      }
+
+      if (_dataCache == null) {
+        _dataCache = createData(_typeNumber, _errorCorrectionLevel, _dataList);
+      }
+
+      mapData(_dataCache, maskPattern);
+    };
+
+    var setupPositionProbePattern = function(row, col) {
+
+      for (var r = -1; r &lt;= 7; r += 1) {
+
+        if (row + r &lt;= -1 || _moduleCount &lt;= row + r) continue;
+
+        for (var c = -1; c &lt;= 7; c += 1) {
+
+          if (col + c &lt;= -1 || _moduleCount &lt;= col + c) continue;
+
+          if ( (0 &lt;= r &amp;&amp; r &lt;= 6 &amp;&amp; (c == 0 || c == 6) )
+              || (0 &lt;= c &amp;&amp; c &lt;= 6 &amp;&amp; (r == 0 || r == 6) )
+              || (2 &lt;= r &amp;&amp; r &lt;= 4 &amp;&amp; 2 &lt;= c &amp;&amp; c &lt;= 4) ) {
+            _modules[row + r][col + c] = true;
+          } else {
+            _modules[row + r][col + c] = false;
+          }
+        }
+      }
+    };
+
+    var getBestMaskPattern = function() {
+
+      var minLostPoint = 0;
+      var pattern = 0;
+
+      for (var i = 0; i &lt; 8; i += 1) {
+
+        makeImpl(true, i);
+
+        var lostPoint = QRUtil.getLostPoint(_this);
+
+        if (i == 0 || minLostPoint &gt; lostPoint) {
+          minLostPoint = lostPoint;
+          pattern = i;
+        }
+      }
+
+      return pattern;
+    };
+
+    var setupTimingPattern = function() {
+
+      for (var r = 8; r &lt; _moduleCount - 8; r += 1) {
+        if (_modules[r][6] != null) {
+          continue;
+        }
+        _modules[r][6] = (r % 2 == 0);
+      }
+
+      for (var c = 8; c &lt; _moduleCount - 8; c += 1) {
+        if (_modules[6][c] != null) {
+          continue;
+        }
+        _modules[6][c] = (c % 2 == 0);
+      }
+    };
+
+    var setupPositionAdjustPattern = function() {
+
+      var pos = QRUtil.getPatternPosition(_typeNumber);
+
+      for (var i = 0; i &lt; pos.length; i += 1) {
+
+        for (var j = 0; j &lt; pos.length; j += 1) {
+
+          var row = pos[i];
+          var col = pos[j];
+
+          if (_modules[row][col] != null) {
+            continue;
+          }
+
+          for (var r = -2; r &lt;= 2; r += 1) {
+
+            for (var c = -2; c &lt;= 2; c += 1) {
+
+              if (r == -2 || r == 2 || c == -2 || c == 2
+                  || (r == 0 &amp;&amp; c == 0) ) {
+                _modules[row + r][col + c] = true;
+              } else {
+                _modules[row + r][col + c] = false;
+              }
+            }
+          }
+        }
+      }
+    };
+
+    var setupTypeNumber = function(test) {
+
+      var bits = QRUtil.getBCHTypeNumber(_typeNumber);
+
+      for (var i = 0; i &lt; 18; i += 1) {
+        var mod = (!test &amp;&amp; ( (bits &gt;&gt; i) &amp; 1) == 1);
+        _modules[Math.floor(i / 3)][i % 3 + _moduleCount - 8 - 3] = mod;
+      }
+
+      for (var i = 0; i &lt; 18; i += 1) {
+        var mod = (!test &amp;&amp; ( (bits &gt;&gt; i) &amp; 1) == 1);
+        _modules[i % 3 + _moduleCount - 8 - 3][Math.floor(i / 3)] = mod;
+      }
+    };
+
+    var setupTypeInfo = function(test, maskPattern) {
+
+      var data = (_errorCorrectionLevel &lt;&lt; 3) | maskPattern;
+      var bits = QRUtil.getBCHTypeInfo(data);
+
+      // vertical
+      for (var i = 0; i &lt; 15; i += 1) {
+
+        var mod = (!test &amp;&amp; ( (bits &gt;&gt; i) &amp; 1) == 1);
+
+        if (i &lt; 6) {
+          _modules[i][8] = mod;
+        } else if (i &lt; 8) {
+          _modules[i + 1][8] = mod;
+        } else {
+          _modules[_moduleCount - 15 + i][8] = mod;
+        }
+      }
+
+      // horizontal
+      for (var i = 0; i &lt; 15; i += 1) {
+
+        var mod = (!test &amp;&amp; ( (bits &gt;&gt; i) &amp; 1) == 1);
+
+        if (i &lt; 8) {
+          _modules[8][_moduleCount - i - 1] = mod;
+        } else if (i &lt; 9) {
+          _modules[8][15 - i - 1 + 1] = mod;
+        } else {
+          _modules[8][15 - i - 1] = mod;
+        }
+      }
+
+      // fixed module
+      _modules[_moduleCount - 8][8] = (!test);
+    };
+
+    var mapData = function(data, maskPattern) {
+
+      var inc = -1;
+      var row = _moduleCount - 1;
+      var bitIndex = 7;
+      var byteIndex = 0;
+      var maskFunc = QRUtil.getMaskFunction(maskPattern);
+
+      for (var col = _moduleCount - 1; col &gt; 0; col -= 2) {
+
+        if (col == 6) col -= 1;
+
+        while (true) {
+
+          for (var c = 0; c &lt; 2; c += 1) {
+
+            if (_modules[row][col - c] == null) {
+
+              var dark = false;
+
+              if (byteIndex &lt; data.length) {
+                dark = ( ( (data[byteIndex] &gt;&gt;&gt; bitIndex) &amp; 1) == 1);
+              }
+
+              var mask = maskFunc(row, col - c);
+
+              if (mask) {
+                dark = !dark;
+              }
+
+              _modules[row][col - c] = dark;
+              bitIndex -= 1;
+
+              if (bitIndex == -1) {
+                byteIndex += 1;
+                bitIndex = 7;
+              }
+            }
+          }
+
+          row += inc;
+
+          if (row &lt; 0 || _moduleCount &lt;= row) {
+            row -= inc;
+            inc = -inc;
+            break;
+          }
+        }
+      }
+    };
+
+    var createBytes = function(buffer, rsBlocks) {
+
+      var offset = 0;
+
+      var maxDcCount = 0;
+      var maxEcCount = 0;
+
+      var dcdata = new Array(rsBlocks.length);
+      var ecdata = new Array(rsBlocks.length);
+
+      for (var r = 0; r &lt; rsBlocks.length; r += 1) {
+
+        var dcCount = rsBlocks[r].dataCount;
+        var ecCount = rsBlocks[r].totalCount - dcCount;
+
+        maxDcCount = Math.max(maxDcCount, dcCount);
+        maxEcCount = Math.max(maxEcCount, ecCount);
+
+        dcdata[r] = new Array(dcCount);
+
+        for (var i = 0; i &lt; dcdata[r].length; i += 1) {
+          dcdata[r][i] = 0xff &amp; buffer.getBuffer()[i + offset];
+        }
+        offset += dcCount;
+
+        var rsPoly = QRUtil.getErrorCorrectPolynomial(ecCount);
+        var rawPoly = qrPolynomial(dcdata[r], rsPoly.getLength() - 1);
+
+        var modPoly = rawPoly.mod(rsPoly);
+        ecdata[r] = new Array(rsPoly.getLength() - 1);
+        for (var i = 0; i &lt; ecdata[r].length; i += 1) {
+          var modIndex = i + modPoly.getLength() - ecdata[r].length;
+          ecdata[r][i] = (modIndex &gt;= 0)? modPoly.getAt(modIndex) : 0;
+        }
+      }
+
+      var totalCodeCount = 0;
+      for (var i = 0; i &lt; rsBlocks.length; i += 1) {
+        totalCodeCount += rsBlocks[i].totalCount;
+      }
+
+      var data = new Array(totalCodeCount);
+      var index = 0;
+
+      for (var i = 0; i &lt; maxDcCount; i += 1) {
+        for (var r = 0; r &lt; rsBlocks.length; r += 1) {
+          if (i &lt; dcdata[r].length) {
+            data[index] = dcdata[r][i];
+            index += 1;
+          }
+        }
+      }
+
+      for (var i = 0; i &lt; maxEcCount; i += 1) {
+        for (var r = 0; r &lt; rsBlocks.length; r += 1) {
+          if (i &lt; ecdata[r].length) {
+            data[index] = ecdata[r][i];
+            index += 1;
+          }
+        }
+      }
+
+      return data;
+    };
+
+    var createData = function(typeNumber, errorCorrectionLevel, dataList) {
+
+      var rsBlocks = QRRSBlock.getRSBlocks(typeNumber, errorCorrectionLevel);
+
+      var buffer = qrBitBuffer();
+
+      for (var i = 0; i &lt; dataList.length; i += 1) {
+        var data = dataList[i];
+        buffer.put(data.getMode(), 4);
+        buffer.put(data.getLength(), QRUtil.getLengthInBits(data.getMode(), typeNumber) );
+        data.write(buffer);
+      }
+
+      // calc num max data.
+      var totalDataCount = 0;
+      for (var i = 0; i &lt; rsBlocks.length; i += 1) {
+        totalDataCount += rsBlocks[i].dataCount;
+      }
+
+      if (buffer.getLengthInBits() &gt; totalDataCount * 8) {
+        throw &#x27;code length overflow. (&#x27;
+          + buffer.getLengthInBits()
+          + &#x27;&gt;&#x27;
+          + totalDataCount * 8
+          + &#x27;)&#x27;;
+      }
+
+      // end code
+      if (buffer.getLengthInBits() + 4 &lt;= totalDataCount * 8) {
+        buffer.put(0, 4);
+      }
+
+      // padding
+      while (buffer.getLengthInBits() % 8 != 0) {
+        buffer.putBit(false);
+      }
+
+      // padding
+      while (true) {
+
+        if (buffer.getLengthInBits() &gt;= totalDataCount * 8) {
+          break;
+        }
+        buffer.put(PAD0, 8);
+
+        if (buffer.getLengthInBits() &gt;= totalDataCount * 8) {
+          break;
+        }
+        buffer.put(PAD1, 8);
+      }
+
+      return createBytes(buffer, rsBlocks);
+    };
+
+    _this.addData = function(data, mode) {
+
+      mode = mode || &#x27;Byte&#x27;;
+
+      var newData = null;
+
+      switch(mode) {
+      case &#x27;Numeric&#x27; :
+        newData = qrNumber(data);
+        break;
+      case &#x27;Alphanumeric&#x27; :
+        newData = qrAlphaNum(data);
+        break;
+      case &#x27;Byte&#x27; :
+        newData = qr8BitByte(data);
+        break;
+      case &#x27;Kanji&#x27; :
+        newData = qrKanji(data);
+        break;
+      default :
+        throw &#x27;mode:&#x27; + mode;
+      }
+
+      _dataList.push(newData);
+      _dataCache = null;
+    };
+
+    _this.isDark = function(row, col) {
+      if (row &lt; 0 || _moduleCount &lt;= row || col &lt; 0 || _moduleCount &lt;= col) {
+        throw row + &#x27;,&#x27; + col;
+      }
+      return _modules[row][col];
+    };
+
+    _this.getModuleCount = function() {
+      return _moduleCount;
+    };
+
+    _this.make = function() {
+      if (_typeNumber &lt; 1) {
+        var typeNumber = 1;
+
+        for (; typeNumber &lt; 40; typeNumber++) {
+          var rsBlocks = QRRSBlock.getRSBlocks(typeNumber, _errorCorrectionLevel);
+          var buffer = qrBitBuffer();
+
+          for (var i = 0; i &lt; _dataList.length; i++) {
+            var data = _dataList[i];
+            buffer.put(data.getMode(), 4);
+            buffer.put(data.getLength(), QRUtil.getLengthInBits(data.getMode(), typeNumber) );
+            data.write(buffer);
+          }
+
+          var totalDataCount = 0;
+          for (var i = 0; i &lt; rsBlocks.length; i++) {
+            totalDataCount += rsBlocks[i].dataCount;
+          }
+
+          if (buffer.getLengthInBits() &lt;= totalDataCount * 8) {
+            break;
+          }
+        }
+
+        _typeNumber = typeNumber;
+      }
+
+      makeImpl(false, getBestMaskPattern() );
+    };
+
+    _this.createTableTag = function(cellSize, margin) {
+
+      cellSize = cellSize || 2;
+      margin = (typeof margin == &#x27;undefined&#x27;)? cellSize * 4 : margin;
+
+      var qrHtml = &#x27;&#x27;;
+
+      qrHtml += &#x27;&lt;table style=&quot;&#x27;;
+      qrHtml += &#x27; border-width: 0px; border-style: none;&#x27;;
+      qrHtml += &#x27; border-collapse: collapse;&#x27;;
+      qrHtml += &#x27; padding: 0px; margin: &#x27; + margin + &#x27;px;&#x27;;
+      qrHtml += &#x27;&quot;&gt;&#x27;;
+      qrHtml += &#x27;&lt;tbody&gt;&#x27;;
+
+      for (var r = 0; r &lt; _this.getModuleCount(); r += 1) {
+
+        qrHtml += &#x27;&lt;tr&gt;&#x27;;
+
+        for (var c = 0; c &lt; _this.getModuleCount(); c += 1) {
+          qrHtml += &#x27;&lt;td style=&quot;&#x27;;
+          qrHtml += &#x27; border-width: 0px; border-style: none;&#x27;;
+          qrHtml += &#x27; border-collapse: collapse;&#x27;;
+          qrHtml += &#x27; padding: 0px; margin: 0px;&#x27;;
+          qrHtml += &#x27; width: &#x27; + cellSize + &#x27;px;&#x27;;
+          qrHtml += &#x27; height: &#x27; + cellSize + &#x27;px;&#x27;;
+          qrHtml += &#x27; background-color: &#x27;;
+          qrHtml += _this.isDark(r, c)? &#x27;#000000&#x27; : &#x27;#ffffff&#x27;;
+          qrHtml += &#x27;;&#x27;;
+          qrHtml += &#x27;&quot;/&gt;&#x27;;
+        }
+
+        qrHtml += &#x27;&lt;/tr&gt;&#x27;;
+      }
+
+      qrHtml += &#x27;&lt;/tbody&gt;&#x27;;
+      qrHtml += &#x27;&lt;/table&gt;&#x27;;
+
+      return qrHtml;
+    };
+
+    _this.createSvgTag = function(cellSize, margin, alt, title) {
+
+      var opts = {};
+      if (typeof arguments[0] == &#x27;object&#x27;) {
+        // Called by options.
+        opts = arguments[0];
+        // overwrite cellSize and margin.
+        cellSize = opts.cellSize;
+        margin = opts.margin;
+        alt = opts.alt;
+        title = opts.title;
+      }
+
+      cellSize = cellSize || 2;
+      margin = (typeof margin == &#x27;undefined&#x27;)? cellSize * 4 : margin;
+
+      // Compose alt property surrogate
+      alt = (typeof alt === &#x27;string&#x27;) ? {text: alt} : alt || {};
+      alt.text = alt.text || null;
+      alt.id = (alt.text) ? alt.id || &#x27;qrcode-description&#x27; : null;
+
+      // Compose title property surrogate
+      title = (typeof title === &#x27;string&#x27;) ? {text: title} : title || {};
+      title.text = title.text || null;
+      title.id = (title.text) ? title.id || &#x27;qrcode-title&#x27; : null;
+
+      var size = _this.getModuleCount() * cellSize + margin * 2;
+      var c, mc, r, mr, qrSvg=&#x27;&#x27;, rect;
+
+      rect = &#x27;l&#x27; + cellSize + &#x27;,0 0,&#x27; + cellSize +
+        &#x27; -&#x27; + cellSize + &#x27;,0 0,-&#x27; + cellSize + &#x27;z &#x27;;
+
+      qrSvg += &#x27;&lt;svg version=&quot;1.1&quot; xmlns=&quot;http://www.w3.org/2000/svg&quot;&#x27;;
+      qrSvg += !opts.scalable ? &#x27; width=&quot;&#x27; + size + &#x27;px&quot; height=&quot;&#x27; + size + &#x27;px&quot;&#x27; : &#x27;&#x27;;
+      qrSvg += &#x27; viewBox=&quot;0 0 &#x27; + size + &#x27; &#x27; + size + &#x27;&quot; &#x27;;
+      qrSvg += &#x27; preserveAspectRatio=&quot;xMinYMin meet&quot;&#x27;;
+      qrSvg += (title.text || alt.text) ? &#x27; role=&quot;img&quot; aria-labelledby=&quot;&#x27; +
+          escapeXml([title.id, alt.id].join(&#x27; &#x27;).trim() ) + &#x27;&quot;&#x27; : &#x27;&#x27;;
+      qrSvg += &#x27;&gt;&#x27;;
+      qrSvg += (title.text) ? &#x27;&lt;title id=&quot;&#x27; + escapeXml(title.id) + &#x27;&quot;&gt;&#x27; +
+          escapeXml(title.text) + &#x27;&lt;/title&gt;&#x27; : &#x27;&#x27;;
+      qrSvg += (alt.text) ? &#x27;&lt;description id=&quot;&#x27; + escapeXml(alt.id) + &#x27;&quot;&gt;&#x27; +
+          escapeXml(alt.text) + &#x27;&lt;/description&gt;&#x27; : &#x27;&#x27;;
+      qrSvg += &#x27;&lt;rect width=&quot;100%&quot; height=&quot;100%&quot; fill=&quot;white&quot; cx=&quot;0&quot; cy=&quot;0&quot;/&gt;&#x27;;
+      qrSvg += &#x27;&lt;path d=&quot;&#x27;;
+
+      for (r = 0; r &lt; _this.getModuleCount(); r += 1) {
+        mr = r * cellSize + margin;
+        for (c = 0; c &lt; _this.getModuleCount(); c += 1) {
+          if (_this.isDark(r, c) ) {
+            mc = c*cellSize+margin;
+            qrSvg += &#x27;M&#x27; + mc + &#x27;,&#x27; + mr + rect;
+          }
+        }
+      }
+
+      qrSvg += &#x27;&quot; stroke=&quot;transparent&quot; fill=&quot;black&quot;/&gt;&#x27;;
+      qrSvg += &#x27;&lt;/svg&gt;&#x27;;
+
+      return qrSvg;
+    };
+
+    _this.createDataURL = function(cellSize, margin) {
+
+      cellSize = cellSize || 2;
+      margin = (typeof margin == &#x27;undefined&#x27;)? cellSize * 4 : margin;
+
+      var size = _this.getModuleCount() * cellSize + margin * 2;
+      var min = margin;
+      var max = size - margin;
+
+      return createDataURL(size, size, function(x, y) {
+        if (min &lt;= x &amp;&amp; x &lt; max &amp;&amp; min &lt;= y &amp;&amp; y &lt; max) {
+          var c = Math.floor( (x - min) / cellSize);
+          var r = Math.floor( (y - min) / cellSize);
+          return _this.isDark(r, c)? 0 : 1;
+        } else {
+          return 1;
+        }
+      } );
+    };
+
+    _this.createImgTag = function(cellSize, margin, alt) {
+
+      cellSize = cellSize || 2;
+      margin = (typeof margin == &#x27;undefined&#x27;)? cellSize * 4 : margin;
+
+      var size = _this.getModuleCount() * cellSize + margin * 2;
+
+      var img = &#x27;&#x27;;
+      img += &#x27;&lt;img&#x27;;
+      img += &#x27;\u0020src=&quot;&#x27;;
+      img += _this.createDataURL(cellSize, margin);
+      img += &#x27;&quot;&#x27;;
+      img += &#x27;\u0020width=&quot;&#x27;;
+      img += size;
+      img += &#x27;&quot;&#x27;;
+      img += &#x27;\u0020height=&quot;&#x27;;
+      img += size;
+      img += &#x27;&quot;&#x27;;
+      if (alt) {
+        img += &#x27;\u0020alt=&quot;&#x27;;
+        img += escapeXml(alt);
+        img += &#x27;&quot;&#x27;;
+      }
+      img += &#x27;/&gt;&#x27;;
+
+      return img;
+    };
+
+    var escapeXml = function(s) {
+      var escaped = &#x27;&#x27;;
+      for (var i = 0; i &lt; s.length; i += 1) {
+        var c = s.charAt(i);
+        switch(c) {
+        case &#x27;&lt;&#x27;: escaped += &#x27;&amp;lt;&#x27;; break;
+        case &#x27;&gt;&#x27;: escaped += &#x27;&amp;gt;&#x27;; break;
+        case &#x27;&amp;&#x27;: escaped += &#x27;&amp;amp;&#x27;; break;
+        case &#x27;&quot;&#x27;: escaped += &#x27;&amp;quot;&#x27;; break;
+        default : escaped += c; break;
+        }
+      }
+      return escaped;
+    };
+
+    var _createHalfASCII = function(margin) {
+      var cellSize = 1;
+      margin = (typeof margin == &#x27;undefined&#x27;)? cellSize * 2 : margin;
+
+      var size = _this.getModuleCount() * cellSize + margin * 2;
+      var min = margin;
+      var max = size - margin;
+
+      var y, x, r1, r2, p;
+
+      var blocks = {
+        &#x27;██&#x27;: &#x27;█&#x27;,
+        &#x27;█ &#x27;: &#x27;▀&#x27;,
+        &#x27; █&#x27;: &#x27;▄&#x27;,
+        &#x27;  &#x27;: &#x27; &#x27;
+      };
+
+      var blocksLastLineNoMargin = {
+        &#x27;██&#x27;: &#x27;▀&#x27;,
+        &#x27;█ &#x27;: &#x27;▀&#x27;,
+        &#x27; █&#x27;: &#x27; &#x27;,
+        &#x27;  &#x27;: &#x27; &#x27;
+      };
+
+      var ascii = &#x27;&#x27;;
+      for (y = 0; y &lt; size; y += 2) {
+        r1 = Math.floor((y - min) / cellSize);
+        r2 = Math.floor((y + 1 - min) / cellSize);
+        for (x = 0; x &lt; size; x += 1) {
+          p = &#x27;█&#x27;;
+
+          if (min &lt;= x &amp;&amp; x &lt; max &amp;&amp; min &lt;= y &amp;&amp; y &lt; max &amp;&amp; _this.isDark(r1, Math.floor((x - min) / cellSize))) {
+            p = &#x27; &#x27;;
+          }
+
+          if (min &lt;= x &amp;&amp; x &lt; max &amp;&amp; min &lt;= y+1 &amp;&amp; y+1 &lt; max &amp;&amp; _this.isDark(r2, Math.floor((x - min) / cellSize))) {
+            p += &#x27; &#x27;;
+          }
+          else {
+            p += &#x27;█&#x27;;
+          }
+
+          // Output 2 characters per pixel, to create full square. 1 character per pixels gives only half width of square.
+          ascii += (margin &lt; 1 &amp;&amp; y+1 &gt;= max) ? blocksLastLineNoMargin[p] : blocks[p];
+        }
+
+        ascii += &#x27;\n&#x27;;
+      }
+
+      if (size % 2 &amp;&amp; margin &gt; 0) {
+        return ascii.substring(0, ascii.length - size - 1) + Array(size+1).join(&#x27;▀&#x27;);
+      }
+
+      return ascii.substring(0, ascii.length-1);
+    };
+
+    _this.createASCII = function(cellSize, margin) {
+      cellSize = cellSize || 1;
+
+      if (cellSize &lt; 2) {
+        return _createHalfASCII(margin);
+      }
+
+      cellSize -= 1;
+      margin = (typeof margin == &#x27;undefined&#x27;)? cellSize * 2 : margin;
+
+      var size = _this.getModuleCount() * cellSize + margin * 2;
+      var min = margin;
+      var max = size - margin;
+
+      var y, x, r, p;
+
+      var white = Array(cellSize+1).join(&#x27;██&#x27;);
+      var black = Array(cellSize+1).join(&#x27;  &#x27;);
+
+      var ascii = &#x27;&#x27;;
+      var line = &#x27;&#x27;;
+      for (y = 0; y &lt; size; y += 1) {
+        r = Math.floor( (y - min) / cellSize);
+        line = &#x27;&#x27;;
+        for (x = 0; x &lt; size; x += 1) {
+          p = 1;
+
+          if (min &lt;= x &amp;&amp; x &lt; max &amp;&amp; min &lt;= y &amp;&amp; y &lt; max &amp;&amp; _this.isDark(r, Math.floor((x - min) / cellSize))) {
+            p = 0;
+          }
+
+          // Output 2 characters per pixel, to create full square. 1 character per pixels gives only half width of square.
+          line += p ? white : black;
+        }
+
+        for (r = 0; r &lt; cellSize; r += 1) {
+          ascii += line + &#x27;\n&#x27;;
+        }
+      }
+
+      return ascii.substring(0, ascii.length-1);
+    };
+
+    _this.renderTo2dContext = function(context, cellSize) {
+      cellSize = cellSize || 2;
+      var length = _this.getModuleCount();
+      for (var row = 0; row &lt; length; row++) {
+        for (var col = 0; col &lt; length; col++) {
+          context.fillStyle = _this.isDark(row, col) ? &#x27;black&#x27; : &#x27;white&#x27;;
+          context.fillRect(row * cellSize, col * cellSize, cellSize, cellSize);
+        }
+      }
+    }
+
+    return _this;
+  };
+
+  //---------------------------------------------------------------------
+  // qrcode.stringToBytes
+  //---------------------------------------------------------------------
+
+  qrcode.stringToBytesFuncs = {
+    &#x27;default&#x27; : function(s) {
+      var bytes = [];
+      for (var i = 0; i &lt; s.length; i += 1) {
+        var c = s.charCodeAt(i);
+        bytes.push(c &amp; 0xff);
+      }
+      return bytes;
+    }
+  };
+
+  qrcode.stringToBytes = qrcode.stringToBytesFuncs[&#x27;default&#x27;];
+
+  //---------------------------------------------------------------------
+  // qrcode.createStringToBytes
+  //---------------------------------------------------------------------
+
+  /**
+   * @param unicodeData base64 string of byte array.
+   * [16bit Unicode],[16bit Bytes], ...
+   * @param numChars
+   */
+  qrcode.createStringToBytes = function(unicodeData, numChars) {
+
+    // create conversion map.
+
+    var unicodeMap = function() {
+
+      var bin = base64DecodeInputStream(unicodeData);
+      var read = function() {
+        var b = bin.read();
+        if (b == -1) throw &#x27;eof&#x27;;
+        return b;
+      };
+
+      var count = 0;
+      var unicodeMap = {};
+      while (true) {
+        var b0 = bin.read();
+        if (b0 == -1) break;
+        var b1 = read();
+        var b2 = read();
+        var b3 = read();
+        var k = String.fromCharCode( (b0 &lt;&lt; 8) | b1);
+        var v = (b2 &lt;&lt; 8) | b3;
+        unicodeMap[k] = v;
+        count += 1;
+      }
+      if (count != numChars) {
+        throw count + &#x27; != &#x27; + numChars;
+      }
+
+      return unicodeMap;
+    }();
+
+    var unknownChar = &#x27;?&#x27;.charCodeAt(0);
+
+    return function(s) {
+      var bytes = [];
+      for (var i = 0; i &lt; s.length; i += 1) {
+        var c = s.charCodeAt(i);
+        if (c &lt; 128) {
+          bytes.push(c);
+        } else {
+          var b = unicodeMap[s.charAt(i)];
+          if (typeof b == &#x27;number&#x27;) {
+            if ( (b &amp; 0xff) == b) {
+              // 1byte
+              bytes.push(b);
+            } else {
+              // 2bytes
+              bytes.push(b &gt;&gt;&gt; 8);
+              bytes.push(b &amp; 0xff);
+            }
+          } else {
+            bytes.push(unknownChar);
+          }
+        }
+      }
+      return bytes;
+    };
+  };
+
+  //---------------------------------------------------------------------
+  // QRMode
+  //---------------------------------------------------------------------
+
+  var QRMode = {
+    MODE_NUMBER :    1 &lt;&lt; 0,
+    MODE_ALPHA_NUM : 1 &lt;&lt; 1,
+    MODE_8BIT_BYTE : 1 &lt;&lt; 2,
+    MODE_KANJI :     1 &lt;&lt; 3
+  };
+
+  //---------------------------------------------------------------------
+  // QRErrorCorrectionLevel
+  //---------------------------------------------------------------------
+
+  var QRErrorCorrectionLevel = {
+    L : 1,
+    M : 0,
+    Q : 3,
+    H : 2
+  };
+
+  //---------------------------------------------------------------------
+  // QRMaskPattern
+  //---------------------------------------------------------------------
+
+  var QRMaskPattern = {
+    PATTERN000 : 0,
+    PATTERN001 : 1,
+    PATTERN010 : 2,
+    PATTERN011 : 3,
+    PATTERN100 : 4,
+    PATTERN101 : 5,
+    PATTERN110 : 6,
+    PATTERN111 : 7
+  };
+
+  //---------------------------------------------------------------------
+  // QRUtil
+  //---------------------------------------------------------------------
+
+  var QRUtil = function() {
+
+    var PATTERN_POSITION_TABLE = [
+      [],
+      [6, 18],
+      [6, 22],
+      [6, 26],
+      [6, 30],
+      [6, 34],
+      [6, 22, 38],
+      [6, 24, 42],
+      [6, 26, 46],
+      [6, 28, 50],
+      [6, 30, 54],
+      [6, 32, 58],
+      [6, 34, 62],
+      [6, 26, 46, 66],
+      [6, 26, 48, 70],
+      [6, 26, 50, 74],
+      [6, 30, 54, 78],
+      [6, 30, 56, 82],
+      [6, 30, 58, 86],
+      [6, 34, 62, 90],
+      [6, 28, 50, 72, 94],
+      [6, 26, 50, 74, 98],
+      [6, 30, 54, 78, 102],
+      [6, 28, 54, 80, 106],
+      [6, 32, 58, 84, 110],
+      [6, 30, 58, 86, 114],
+      [6, 34, 62, 90, 118],
+      [6, 26, 50, 74, 98, 122],
+      [6, 30, 54, 78, 102, 126],
+      [6, 26, 52, 78, 104, 130],
+      [6, 30, 56, 82, 108, 134],
+      [6, 34, 60, 86, 112, 138],
+      [6, 30, 58, 86, 114, 142],
+      [6, 34, 62, 90, 118, 146],
+      [6, 30, 54, 78, 102, 126, 150],
+      [6, 24, 50, 76, 102, 128, 154],
+      [6, 28, 54, 80, 106, 132, 158],
+      [6, 32, 58, 84, 110, 136, 162],
+      [6, 26, 54, 82, 110, 138, 166],
+      [6, 30, 58, 86, 114, 142, 170]
+    ];
+    var G15 = (1 &lt;&lt; 10) | (1 &lt;&lt; 8) | (1 &lt;&lt; 5) | (1 &lt;&lt; 4) | (1 &lt;&lt; 2) | (1 &lt;&lt; 1) | (1 &lt;&lt; 0);
+    var G18 = (1 &lt;&lt; 12) | (1 &lt;&lt; 11) | (1 &lt;&lt; 10) | (1 &lt;&lt; 9) | (1 &lt;&lt; 8) | (1 &lt;&lt; 5) | (1 &lt;&lt; 2) | (1 &lt;&lt; 0);
+    var G15_MASK = (1 &lt;&lt; 14) | (1 &lt;&lt; 12) | (1 &lt;&lt; 10) | (1 &lt;&lt; 4) | (1 &lt;&lt; 1);
+
+    var _this = {};
+
+    var getBCHDigit = function(data) {
+      var digit = 0;
+      while (data != 0) {
+        digit += 1;
+        data &gt;&gt;&gt;= 1;
+      }
+      return digit;
+    };
+
+    _this.getBCHTypeInfo = function(data) {
+      var d = data &lt;&lt; 10;
+      while (getBCHDigit(d) - getBCHDigit(G15) &gt;= 0) {
+        d ^= (G15 &lt;&lt; (getBCHDigit(d) - getBCHDigit(G15) ) );
+      }
+      return ( (data &lt;&lt; 10) | d) ^ G15_MASK;
+    };
+
+    _this.getBCHTypeNumber = function(data) {
+      var d = data &lt;&lt; 12;
+      while (getBCHDigit(d) - getBCHDigit(G18) &gt;= 0) {
+        d ^= (G18 &lt;&lt; (getBCHDigit(d) - getBCHDigit(G18) ) );
+      }
+      return (data &lt;&lt; 12) | d;
+    };
+
+    _this.getPatternPosition = function(typeNumber) {
+      return PATTERN_POSITION_TABLE[typeNumber - 1];
+    };
+
+    _this.getMaskFunction = function(maskPattern) {
+
+      switch (maskPattern) {
+
+      case QRMaskPattern.PATTERN000 :
+        return function(i, j) { return (i + j) % 2 == 0; };
+      case QRMaskPattern.PATTERN001 :
+        return function(i, j) { return i % 2 == 0; };
+      case QRMaskPattern.PATTERN010 :
+        return function(i, j) { return j % 3 == 0; };
+      case QRMaskPattern.PATTERN011 :
+        return function(i, j) { return (i + j) % 3 == 0; };
+      case QRMaskPattern.PATTERN100 :
+        return function(i, j) { return (Math.floor(i / 2) + Math.floor(j / 3) ) % 2 == 0; };
+      case QRMaskPattern.PATTERN101 :
+        return function(i, j) { return (i * j) % 2 + (i * j) % 3 == 0; };
+      case QRMaskPattern.PATTERN110 :
+        return function(i, j) { return ( (i * j) % 2 + (i * j) % 3) % 2 == 0; };
+      case QRMaskPattern.PATTERN111 :
+        return function(i, j) { return ( (i * j) % 3 + (i + j) % 2) % 2 == 0; };
+
+      default :
+        throw &#x27;bad maskPattern:&#x27; + maskPattern;
+      }
+    };
+
+    _this.getErrorCorrectPolynomial = function(errorCorrectLength) {
+      var a = qrPolynomial([1], 0);
+      for (var i = 0; i &lt; errorCorrectLength; i += 1) {
+        a = a.multiply(qrPolynomial([1, QRMath.gexp(i)], 0) );
+      }
+      return a;
+    };
+
+    _this.getLengthInBits = function(mode, type) {
+
+      if (1 &lt;= type &amp;&amp; type &lt; 10) {
+
+        // 1 - 9
+
+        switch(mode) {
+        case QRMode.MODE_NUMBER    : return 10;
+        case QRMode.MODE_ALPHA_NUM : return 9;
+        case QRMode.MODE_8BIT_BYTE : return 8;
+        case QRMode.MODE_KANJI     : return 8;
+        default :
+          throw &#x27;mode:&#x27; + mode;
+        }
+
+      } else if (type &lt; 27) {
+
+        // 10 - 26
+
+        switch(mode) {
+        case QRMode.MODE_NUMBER    : return 12;
+        case QRMode.MODE_ALPHA_NUM : return 11;
+        case QRMode.MODE_8BIT_BYTE : return 16;
+        case QRMode.MODE_KANJI     : return 10;
+        default :
+          throw &#x27;mode:&#x27; + mode;
+        }
+
+      } else if (type &lt; 41) {
+
+        // 27 - 40
+
+        switch(mode) {
+        case QRMode.MODE_NUMBER    : return 14;
+        case QRMode.MODE_ALPHA_NUM : return 13;
+        case QRMode.MODE_8BIT_BYTE : return 16;
+        case QRMode.MODE_KANJI     : return 12;
+        default :
+          throw &#x27;mode:&#x27; + mode;
+        }
+
+      } else {
+        throw &#x27;type:&#x27; + type;
+      }
+    };
+
+    _this.getLostPoint = function(qrcode) {
+
+      var moduleCount = qrcode.getModuleCount();
+
+      var lostPoint = 0;
+
+      // LEVEL1
+
+      for (var row = 0; row &lt; moduleCount; row += 1) {
+        for (var col = 0; col &lt; moduleCount; col += 1) {
+
+          var sameCount = 0;
+          var dark = qrcode.isDark(row, col);
+
+          for (var r = -1; r &lt;= 1; r += 1) {
+
+            if (row + r &lt; 0 || moduleCount &lt;= row + r) {
+              continue;
+            }
+
+            for (var c = -1; c &lt;= 1; c += 1) {
+
+              if (col + c &lt; 0 || moduleCount &lt;= col + c) {
+                continue;
+              }
+
+              if (r == 0 &amp;&amp; c == 0) {
+                continue;
+              }
+
+              if (dark == qrcode.isDark(row + r, col + c) ) {
+                sameCount += 1;
+              }
+            }
+          }
+
+          if (sameCount &gt; 5) {
+            lostPoint += (3 + sameCount - 5);
+          }
+        }
+      };
+
+      // LEVEL2
+
+      for (var row = 0; row &lt; moduleCount - 1; row += 1) {
+        for (var col = 0; col &lt; moduleCount - 1; col += 1) {
+          var count = 0;
+          if (qrcode.isDark(row, col) ) count += 1;
+          if (qrcode.isDark(row + 1, col) ) count += 1;
+          if (qrcode.isDark(row, col + 1) ) count += 1;
+          if (qrcode.isDark(row + 1, col + 1) ) count += 1;
+          if (count == 0 || count == 4) {
+            lostPoint += 3;
+          }
+        }
+      }
+
+      // LEVEL3
+
+      for (var row = 0; row &lt; moduleCount; row += 1) {
+        for (var col = 0; col &lt; moduleCount - 6; col += 1) {
+          if (qrcode.isDark(row, col)
+              &amp;&amp; !qrcode.isDark(row, col + 1)
+              &amp;&amp;  qrcode.isDark(row, col + 2)
+              &amp;&amp;  qrcode.isDark(row, col + 3)
+              &amp;&amp;  qrcode.isDark(row, col + 4)
+              &amp;&amp; !qrcode.isDark(row, col + 5)
+              &amp;&amp;  qrcode.isDark(row, col + 6) ) {
+            lostPoint += 40;
+          }
+        }
+      }
+
+      for (var col = 0; col &lt; moduleCount; col += 1) {
+        for (var row = 0; row &lt; moduleCount - 6; row += 1) {
+          if (qrcode.isDark(row, col)
+              &amp;&amp; !qrcode.isDark(row + 1, col)
+              &amp;&amp;  qrcode.isDark(row + 2, col)
+              &amp;&amp;  qrcode.isDark(row + 3, col)
+              &amp;&amp;  qrcode.isDark(row + 4, col)
+              &amp;&amp; !qrcode.isDark(row + 5, col)
+              &amp;&amp;  qrcode.isDark(row + 6, col) ) {
+            lostPoint += 40;
+          }
+        }
+      }
+
+      // LEVEL4
+
+      var darkCount = 0;
+
+      for (var col = 0; col &lt; moduleCount; col += 1) {
+        for (var row = 0; row &lt; moduleCount; row += 1) {
+          if (qrcode.isDark(row, col) ) {
+            darkCount += 1;
+          }
+        }
+      }
+
+      var ratio = Math.abs(100 * darkCount / moduleCount / moduleCount - 50) / 5;
+      lostPoint += ratio * 10;
+
+      return lostPoint;
+    };
+
+    return _this;
+  }();
+
+  //---------------------------------------------------------------------
+  // QRMath
+  //---------------------------------------------------------------------
+
+  var QRMath = function() {
+
+    var EXP_TABLE = new Array(256);
+    var LOG_TABLE = new Array(256);
+
+    // initialize tables
+    for (var i = 0; i &lt; 8; i += 1) {
+      EXP_TABLE[i] = 1 &lt;&lt; i;
+    }
+    for (var i = 8; i &lt; 256; i += 1) {
+      EXP_TABLE[i] = EXP_TABLE[i - 4]
+        ^ EXP_TABLE[i - 5]
+        ^ EXP_TABLE[i - 6]
+        ^ EXP_TABLE[i - 8];
+    }
+    for (var i = 0; i &lt; 255; i += 1) {
+      LOG_TABLE[EXP_TABLE[i] ] = i;
+    }
+
+    var _this = {};
+
+    _this.glog = function(n) {
+
+      if (n &lt; 1) {
+        throw &#x27;glog(&#x27; + n + &#x27;)&#x27;;
+      }
+
+      return LOG_TABLE[n];
+    };
+
+    _this.gexp = function(n) {
+
+      while (n &lt; 0) {
+        n += 255;
+      }
+
+      while (n &gt;= 256) {
+        n -= 255;
+      }
+
+      return EXP_TABLE[n];
+    };
+
+    return _this;
+  }();
+
+  //---------------------------------------------------------------------
+  // qrPolynomial
+  //---------------------------------------------------------------------
+
+  function qrPolynomial(num, shift) {
+
+    if (typeof num.length == &#x27;undefined&#x27;) {
+      throw num.length + &#x27;/&#x27; + shift;
+    }
+
+    var _num = function() {
+      var offset = 0;
+      while (offset &lt; num.length &amp;&amp; num[offset] == 0) {
+        offset += 1;
+      }
+      var _num = new Array(num.length - offset + shift);
+      for (var i = 0; i &lt; num.length - offset; i += 1) {
+        _num[i] = num[i + offset];
+      }
+      return _num;
+    }();
+
+    var _this = {};
+
+    _this.getAt = function(index) {
+      return _num[index];
+    };
+
+    _this.getLength = function() {
+      return _num.length;
+    };
+
+    _this.multiply = function(e) {
+
+      var num = new Array(_this.getLength() + e.getLength() - 1);
+
+      for (var i = 0; i &lt; _this.getLength(); i += 1) {
+        for (var j = 0; j &lt; e.getLength(); j += 1) {
+          num[i + j] ^= QRMath.gexp(QRMath.glog(_this.getAt(i) ) + QRMath.glog(e.getAt(j) ) );
+        }
+      }
+
+      return qrPolynomial(num, 0);
+    };
+
+    _this.mod = function(e) {
+
+      if (_this.getLength() - e.getLength() &lt; 0) {
+        return _this;
+      }
+
+      var ratio = QRMath.glog(_this.getAt(0) ) - QRMath.glog(e.getAt(0) );
+
+      var num = new Array(_this.getLength() );
+      for (var i = 0; i &lt; _this.getLength(); i += 1) {
+        num[i] = _this.getAt(i);
+      }
+
+      for (var i = 0; i &lt; e.getLength(); i += 1) {
+        num[i] ^= QRMath.gexp(QRMath.glog(e.getAt(i) ) + ratio);
+      }
+
+      // recursive call
+      return qrPolynomial(num, 0).mod(e);
+    };
+
+    return _this;
+  };
+
+  //---------------------------------------------------------------------
+  // QRRSBlock
+  //---------------------------------------------------------------------
+
+  var QRRSBlock = function() {
+
+    var RS_BLOCK_TABLE = [
+
+      // L
+      // M
+      // Q
+      // H
+
+      // 1
+      [1, 26, 19],
+      [1, 26, 16],
+      [1, 26, 13],
+      [1, 26, 9],
+
+      // 2
+      [1, 44, 34],
+      [1, 44, 28],
+      [1, 44, 22],
+      [1, 44, 16],
+
+      // 3
+      [1, 70, 55],
+      [1, 70, 44],
+      [2, 35, 17],
+      [2, 35, 13],
+
+      // 4
+      [1, 100, 80],
+      [2, 50, 32],
+      [2, 50, 24],
+      [4, 25, 9],
+
+      // 5
+      [1, 134, 108],
+      [2, 67, 43],
+      [2, 33, 15, 2, 34, 16],
+      [2, 33, 11, 2, 34, 12],
+
+      // 6
+      [2, 86, 68],
+      [4, 43, 27],
+      [4, 43, 19],
+      [4, 43, 15],
+
+      // 7
+      [2, 98, 78],
+      [4, 49, 31],
+      [2, 32, 14, 4, 33, 15],
+      [4, 39, 13, 1, 40, 14],
+
+      // 8
+      [2, 121, 97],
+      [2, 60, 38, 2, 61, 39],
+      [4, 40, 18, 2, 41, 19],
+      [4, 40, 14, 2, 41, 15],
+
+      // 9
+      [2, 146, 116],
+      [3, 58, 36, 2, 59, 37],
+      [4, 36, 16, 4, 37, 17],
+      [4, 36, 12, 4, 37, 13],
+
+      // 10
+      [2, 86, 68, 2, 87, 69],
+      [4, 69, 43, 1, 70, 44],
+      [6, 43, 19, 2, 44, 20],
+      [6, 43, 15, 2, 44, 16],
+
+      // 11
+      [4, 101, 81],
+      [1, 80, 50, 4, 81, 51],
+      [4, 50, 22, 4, 51, 23],
+      [3, 36, 12, 8, 37, 13],
+
+      // 12
+      [2, 116, 92, 2, 117, 93],
+      [6, 58, 36, 2, 59, 37],
+      [4, 46, 20, 6, 47, 21],
+      [7, 42, 14, 4, 43, 15],
+
+      // 13
+      [4, 133, 107],
+      [8, 59, 37, 1, 60, 38],
+      [8, 44, 20, 4, 45, 21],
+      [12, 33, 11, 4, 34, 12],
+
+      // 14
+      [3, 145, 115, 1, 146, 116],
+      [4, 64, 40, 5, 65, 41],
+      [11, 36, 16, 5, 37, 17],
+      [11, 36, 12, 5, 37, 13],
+
+      // 15
+      [5, 109, 87, 1, 110, 88],
+      [5, 65, 41, 5, 66, 42],
+      [5, 54, 24, 7, 55, 25],
+      [11, 36, 12, 7, 37, 13],
+
+      // 16
+      [5, 122, 98, 1, 123, 99],
+      [7, 73, 45, 3, 74, 46],
+      [15, 43, 19, 2, 44, 20],
+      [3, 45, 15, 13, 46, 16],
+
+      // 17
+      [1, 135, 107, 5, 136, 108],
+      [10, 74, 46, 1, 75, 47],
+      [1, 50, 22, 15, 51, 23],
+      [2, 42, 14, 17, 43, 15],
+
+      // 18
+      [5, 150, 120, 1, 151, 121],
+      [9, 69, 43, 4, 70, 44],
+      [17, 50, 22, 1, 51, 23],
+      [2, 42, 14, 19, 43, 15],
+
+      // 19
+      [3, 141, 113, 4, 142, 114],
+      [3, 70, 44, 11, 71, 45],
+      [17, 47, 21, 4, 48, 22],
+      [9, 39, 13, 16, 40, 14],
+
+      // 20
+      [3, 135, 107, 5, 136, 108],
+      [3, 67, 41, 13, 68, 42],
+      [15, 54, 24, 5, 55, 25],
+      [15, 43, 15, 10, 44, 16],
+
+      // 21
+      [4, 144, 116, 4, 145, 117],
+      [17, 68, 42],
+      [17, 50, 22, 6, 51, 23],
+      [19, 46, 16, 6, 47, 17],
+
+      // 22
+      [2, 139, 111, 7, 140, 112],
+      [17, 74, 46],
+      [7, 54, 24, 16, 55, 25],
+      [34, 37, 13],
+
+      // 23
+      [4, 151, 121, 5, 152, 122],
+      [4, 75, 47, 14, 76, 48],
+      [11, 54, 24, 14, 55, 25],
+      [16, 45, 15, 14, 46, 16],
+
+      // 24
+      [6, 147, 117, 4, 148, 118],
+      [6, 73, 45, 14, 74, 46],
+      [11, 54, 24, 16, 55, 25],
+      [30, 46, 16, 2, 47, 17],
+
+      // 25
+      [8, 132, 106, 4, 133, 107],
+      [8, 75, 47, 13, 76, 48],
+      [7, 54, 24, 22, 55, 25],
+      [22, 45, 15, 13, 46, 16],
+
+      // 26
+      [10, 142, 114, 2, 143, 115],
+      [19, 74, 46, 4, 75, 47],
+      [28, 50, 22, 6, 51, 23],
+      [33, 46, 16, 4, 47, 17],
+
+      // 27
+      [8, 152, 122, 4, 153, 123],
+      [22, 73, 45, 3, 74, 46],
+      [8, 53, 23, 26, 54, 24],
+      [12, 45, 15, 28, 46, 16],
+
+      // 28
+      [3, 147, 117, 10, 148, 118],
+      [3, 73, 45, 23, 74, 46],
+      [4, 54, 24, 31, 55, 25],
+      [11, 45, 15, 31, 46, 16],
+
+      // 29
+      [7, 146, 116, 7, 147, 117],
+      [21, 73, 45, 7, 74, 46],
+      [1, 53, 23, 37, 54, 24],
+      [19, 45, 15, 26, 46, 16],
+
+      // 30
+      [5, 145, 115, 10, 146, 116],
+      [19, 75, 47, 10, 76, 48],
+      [15, 54, 24, 25, 55, 25],
+      [23, 45, 15, 25, 46, 16],
+
+      // 31
+      [13, 145, 115, 3, 146, 116],
+      [2, 74, 46, 29, 75, 47],
+      [42, 54, 24, 1, 55, 25],
+      [23, 45, 15, 28, 46, 16],
+
+      // 32
+      [17, 145, 115],
+      [10, 74, 46, 23, 75, 47],
+      [10, 54, 24, 35, 55, 25],
+      [19, 45, 15, 35, 46, 16],
+
+      // 33
+      [17, 145, 115, 1, 146, 116],
+      [14, 74, 46, 21, 75, 47],
+      [29, 54, 24, 19, 55, 25],
+      [11, 45, 15, 46, 46, 16],
+
+      // 34
+      [13, 145, 115, 6, 146, 116],
+      [14, 74, 46, 23, 75, 47],
+      [44, 54, 24, 7, 55, 25],
+      [59, 46, 16, 1, 47, 17],
+
+      // 35
+      [12, 151, 121, 7, 152, 122],
+      [12, 75, 47, 26, 76, 48],
+      [39, 54, 24, 14, 55, 25],
+      [22, 45, 15, 41, 46, 16],
+
+      // 36
+      [6, 151, 121, 14, 152, 122],
+      [6, 75, 47, 34, 76, 48],
+      [46, 54, 24, 10, 55, 25],
+      [2, 45, 15, 64, 46, 16],
+
+      // 37
+      [17, 152, 122, 4, 153, 123],
+      [29, 74, 46, 14, 75, 47],
+      [49, 54, 24, 10, 55, 25],
+      [24, 45, 15, 46, 46, 16],
+
+      // 38
+      [4, 152, 122, 18, 153, 123],
+      [13, 74, 46, 32, 75, 47],
+      [48, 54, 24, 14, 55, 25],
+      [42, 45, 15, 32, 46, 16],
+
+      // 39
+      [20, 147, 117, 4, 148, 118],
+      [40, 75, 47, 7, 76, 48],
+      [43, 54, 24, 22, 55, 25],
+      [10, 45, 15, 67, 46, 16],
+
+      // 40
+      [19, 148, 118, 6, 149, 119],
+      [18, 75, 47, 31, 76, 48],
+      [34, 54, 24, 34, 55, 25],
+      [20, 45, 15, 61, 46, 16]
+    ];
+
+    var qrRSBlock = function(totalCount, dataCount) {
+      var _this = {};
+      _this.totalCount = totalCount;
+      _this.dataCount = dataCount;
+      return _this;
+    };
+
+    var _this = {};
+
+    var getRsBlockTable = function(typeNumber, errorCorrectionLevel) {
+
+      switch(errorCorrectionLevel) {
+      case QRErrorCorrectionLevel.L :
+        return RS_BLOCK_TABLE[(typeNumber - 1) * 4 + 0];
+      case QRErrorCorrectionLevel.M :
+        return RS_BLOCK_TABLE[(typeNumber - 1) * 4 + 1];
+      case QRErrorCorrectionLevel.Q :
+        return RS_BLOCK_TABLE[(typeNumber - 1) * 4 + 2];
+      case QRErrorCorrectionLevel.H :
+        return RS_BLOCK_TABLE[(typeNumber - 1) * 4 + 3];
+      default :
+        return undefined;
+      }
+    };
+
+    _this.getRSBlocks = function(typeNumber, errorCorrectionLevel) {
+
+      var rsBlock = getRsBlockTable(typeNumber, errorCorrectionLevel);
+
+      if (typeof rsBlock == &#x27;undefined&#x27;) {
+        throw &#x27;bad rs block @ typeNumber:&#x27; + typeNumber +
+            &#x27;/errorCorrectionLevel:&#x27; + errorCorrectionLevel;
+      }
+
+      var length = rsBlock.length / 3;
+
+      var list = [];
+
+      for (var i = 0; i &lt; length; i += 1) {
+
+        var count = rsBlock[i * 3 + 0];
+        var totalCount = rsBlock[i * 3 + 1];
+        var dataCount = rsBlock[i * 3 + 2];
+
+        for (var j = 0; j &lt; count; j += 1) {
+          list.push(qrRSBlock(totalCount, dataCount) );
+        }
+      }
+
+      return list;
+    };
+
+    return _this;
+  }();
+
+  //---------------------------------------------------------------------
+  // qrBitBuffer
+  //---------------------------------------------------------------------
+
+  var qrBitBuffer = function() {
+
+    var _buffer = [];
+    var _length = 0;
+
+    var _this = {};
+
+    _this.getBuffer = function() {
+      return _buffer;
+    };
+
+    _this.getAt = function(index) {
+      var bufIndex = Math.floor(index / 8);
+      return ( (_buffer[bufIndex] &gt;&gt;&gt; (7 - index % 8) ) &amp; 1) == 1;
+    };
+
+    _this.put = function(num, length) {
+      for (var i = 0; i &lt; length; i += 1) {
+        _this.putBit( ( (num &gt;&gt;&gt; (length - i - 1) ) &amp; 1) == 1);
+      }
+    };
+
+    _this.getLengthInBits = function() {
+      return _length;
+    };
+
+    _this.putBit = function(bit) {
+
+      var bufIndex = Math.floor(_length / 8);
+      if (_buffer.length &lt;= bufIndex) {
+        _buffer.push(0);
+      }
+
+      if (bit) {
+        _buffer[bufIndex] |= (0x80 &gt;&gt;&gt; (_length % 8) );
+      }
+
+      _length += 1;
+    };
+
+    return _this;
+  };
+
+  //---------------------------------------------------------------------
+  // qrNumber
+  //---------------------------------------------------------------------
+
+  var qrNumber = function(data) {
+
+    var _mode = QRMode.MODE_NUMBER;
+    var _data = data;
+
+    var _this = {};
+
+    _this.getMode = function() {
+      return _mode;
+    };
+
+    _this.getLength = function(buffer) {
+      return _data.length;
+    };
+
+    _this.write = function(buffer) {
+
+      var data = _data;
+
+      var i = 0;
+
+      while (i + 2 &lt; data.length) {
+        buffer.put(strToNum(data.substring(i, i + 3) ), 10);
+        i += 3;
+      }
+
+      if (i &lt; data.length) {
+        if (data.length - i == 1) {
+          buffer.put(strToNum(data.substring(i, i + 1) ), 4);
+        } else if (data.length - i == 2) {
+          buffer.put(strToNum(data.substring(i, i + 2) ), 7);
+        }
+      }
+    };
+
+    var strToNum = function(s) {
+      var num = 0;
+      for (var i = 0; i &lt; s.length; i += 1) {
+        num = num * 10 + chatToNum(s.charAt(i) );
+      }
+      return num;
+    };
+
+    var chatToNum = function(c) {
+      if (&#x27;0&#x27; &lt;= c &amp;&amp; c &lt;= &#x27;9&#x27;) {
+        return c.charCodeAt(0) - &#x27;0&#x27;.charCodeAt(0);
+      }
+      throw &#x27;illegal char :&#x27; + c;
+    };
+
+    return _this;
+  };
+
+  //---------------------------------------------------------------------
+  // qrAlphaNum
+  //---------------------------------------------------------------------
+
+  var qrAlphaNum = function(data) {
+
+    var _mode = QRMode.MODE_ALPHA_NUM;
+    var _data = data;
+
+    var _this = {};
+
+    _this.getMode = function() {
+      return _mode;
+    };
+
+    _this.getLength = function(buffer) {
+      return _data.length;
+    };
+
+    _this.write = function(buffer) {
+
+      var s = _data;
+
+      var i = 0;
+
+      while (i + 1 &lt; s.length) {
+        buffer.put(
+          getCode(s.charAt(i) ) * 45 +
+          getCode(s.charAt(i + 1) ), 11);
+        i += 2;
+      }
+
+      if (i &lt; s.length) {
+        buffer.put(getCode(s.charAt(i) ), 6);
+      }
+    };
+
+    var getCode = function(c) {
+
+      if (&#x27;0&#x27; &lt;= c &amp;&amp; c &lt;= &#x27;9&#x27;) {
+        return c.charCodeAt(0) - &#x27;0&#x27;.charCodeAt(0);
+      } else if (&#x27;A&#x27; &lt;= c &amp;&amp; c &lt;= &#x27;Z&#x27;) {
+        return c.charCodeAt(0) - &#x27;A&#x27;.charCodeAt(0) + 10;
+      } else {
+        switch (c) {
+        case &#x27; &#x27; : return 36;
+        case &#x27;$&#x27; : return 37;
+        case &#x27;%&#x27; : return 38;
+        case &#x27;*&#x27; : return 39;
+        case &#x27;+&#x27; : return 40;
+        case &#x27;-&#x27; : return 41;
+        case &#x27;.&#x27; : return 42;
+        case &#x27;/&#x27; : return 43;
+        case &#x27;:&#x27; : return 44;
+        default :
+          throw &#x27;illegal char :&#x27; + c;
+        }
+      }
+    };
+
+    return _this;
+  };
+
+  //---------------------------------------------------------------------
+  // qr8BitByte
+  //---------------------------------------------------------------------
+
+  var qr8BitByte = function(data) {
+
+    var _mode = QRMode.MODE_8BIT_BYTE;
+    var _data = data;
+    var _bytes = qrcode.stringToBytes(data);
+
+    var _this = {};
+
+    _this.getMode = function() {
+      return _mode;
+    };
+
+    _this.getLength = function(buffer) {
+      return _bytes.length;
+    };
+
+    _this.write = function(buffer) {
+      for (var i = 0; i &lt; _bytes.length; i += 1) {
+        buffer.put(_bytes[i], 8);
+      }
+    };
+
+    return _this;
+  };
+
+  //---------------------------------------------------------------------
+  // qrKanji
+  //---------------------------------------------------------------------
+
+  var qrKanji = function(data) {
+
+    var _mode = QRMode.MODE_KANJI;
+    var _data = data;
+
+    var stringToBytes = qrcode.stringToBytesFuncs[&#x27;SJIS&#x27;];
+    if (!stringToBytes) {
+      throw &#x27;sjis not supported.&#x27;;
+    }
+    !function(c, code) {
+      // self test for sjis support.
+      var test = stringToBytes(c);
+      if (test.length != 2 || ( (test[0] &lt;&lt; 8) | test[1]) != code) {
+        throw &#x27;sjis not supported.&#x27;;
+      }
+    }(&#x27;\u53cb&#x27;, 0x9746);
+
+    var _bytes = stringToBytes(data);
+
+    var _this = {};
+
+    _this.getMode = function() {
+      return _mode;
+    };
+
+    _this.getLength = function(buffer) {
+      return ~~(_bytes.length / 2);
+    };
+
+    _this.write = function(buffer) {
+
+      var data = _bytes;
+
+      var i = 0;
+
+      while (i + 1 &lt; data.length) {
+
+        var c = ( (0xff &amp; data[i]) &lt;&lt; 8) | (0xff &amp; data[i + 1]);
+
+        if (0x8140 &lt;= c &amp;&amp; c &lt;= 0x9FFC) {
+          c -= 0x8140;
+        } else if (0xE040 &lt;= c &amp;&amp; c &lt;= 0xEBBF) {
+          c -= 0xC140;
+        } else {
+          throw &#x27;illegal char at &#x27; + (i + 1) + &#x27;/&#x27; + c;
+        }
+
+        c = ( (c &gt;&gt;&gt; 8) &amp; 0xff) * 0xC0 + (c &amp; 0xff);
+
+        buffer.put(c, 13);
+
+        i += 2;
+      }
+
+      if (i &lt; data.length) {
+        throw &#x27;illegal char at &#x27; + (i + 1);
+      }
+    };
+
+    return _this;
+  };
+
+  //=====================================================================
+  // GIF Support etc.
+  //
+
+  //---------------------------------------------------------------------
+  // byteArrayOutputStream
+  //---------------------------------------------------------------------
+
+  var byteArrayOutputStream = function() {
+
+    var _bytes = [];
+
+    var _this = {};
+
+    _this.writeByte = function(b) {
+      _bytes.push(b &amp; 0xff);
+    };
+
+    _this.writeShort = function(i) {
+      _this.writeByte(i);
+      _this.writeByte(i &gt;&gt;&gt; 8);
+    };
+
+    _this.writeBytes = function(b, off, len) {
+      off = off || 0;
+      len = len || b.length;
+      for (var i = 0; i &lt; len; i += 1) {
+        _this.writeByte(b[i + off]);
+      }
+    };
+
+    _this.writeString = function(s) {
+      for (var i = 0; i &lt; s.length; i += 1) {
+        _this.writeByte(s.charCodeAt(i) );
+      }
+    };
+
+    _this.toByteArray = function() {
+      return _bytes;
+    };
+
+    _this.toString = function() {
+      var s = &#x27;&#x27;;
+      s += &#x27;[&#x27;;
+      for (var i = 0; i &lt; _bytes.length; i += 1) {
+        if (i &gt; 0) {
+          s += &#x27;,&#x27;;
+        }
+        s += _bytes[i];
+      }
+      s += &#x27;]&#x27;;
+      return s;
+    };
+
+    return _this;
+  };
+
+  //---------------------------------------------------------------------
+  // base64EncodeOutputStream
+  //---------------------------------------------------------------------
+
+  var base64EncodeOutputStream = function() {
+
+    var _buffer = 0;
+    var _buflen = 0;
+    var _length = 0;
+    var _base64 = &#x27;&#x27;;
+
+    var _this = {};
+
+    var writeEncoded = function(b) {
+      _base64 += String.fromCharCode(encode(b &amp; 0x3f) );
+    };
+
+    var encode = function(n) {
+      if (n &lt; 0) {
+        // error.
+      } else if (n &lt; 26) {
+        return 0x41 + n;
+      } else if (n &lt; 52) {
+        return 0x61 + (n - 26);
+      } else if (n &lt; 62) {
+        return 0x30 + (n - 52);
+      } else if (n == 62) {
+        return 0x2b;
+      } else if (n == 63) {
+        return 0x2f;
+      }
+      throw &#x27;n:&#x27; + n;
+    };
+
+    _this.writeByte = function(n) {
+
+      _buffer = (_buffer &lt;&lt; 8) | (n &amp; 0xff);
+      _buflen += 8;
+      _length += 1;
+
+      while (_buflen &gt;= 6) {
+        writeEncoded(_buffer &gt;&gt;&gt; (_buflen - 6) );
+        _buflen -= 6;
+      }
+    };
+
+    _this.flush = function() {
+
+      if (_buflen &gt; 0) {
+        writeEncoded(_buffer &lt;&lt; (6 - _buflen) );
+        _buffer = 0;
+        _buflen = 0;
+      }
+
+      if (_length % 3 != 0) {
+        // padding
+        var padlen = 3 - _length % 3;
+        for (var i = 0; i &lt; padlen; i += 1) {
+          _base64 += &#x27;=&#x27;;
+        }
+      }
+    };
+
+    _this.toString = function() {
+      return _base64;
+    };
+
+    return _this;
+  };
+
+  //---------------------------------------------------------------------
+  // base64DecodeInputStream
+  //---------------------------------------------------------------------
+
+  var base64DecodeInputStream = function(str) {
+
+    var _str = str;
+    var _pos = 0;
+    var _buffer = 0;
+    var _buflen = 0;
+
+    var _this = {};
+
+    _this.read = function() {
+
+      while (_buflen &lt; 8) {
+
+        if (_pos &gt;= _str.length) {
+          if (_buflen == 0) {
+            return -1;
+          }
+          throw &#x27;unexpected end of file./&#x27; + _buflen;
+        }
+
+        var c = _str.charAt(_pos);
+        _pos += 1;
+
+        if (c == &#x27;=&#x27;) {
+          _buflen = 0;
+          return -1;
+        } else if (c.match(/^\s$/) ) {
+          // ignore if whitespace.
+          continue;
+        }
+
+        _buffer = (_buffer &lt;&lt; 6) | decode(c.charCodeAt(0) );
+        _buflen += 6;
+      }
+
+      var n = (_buffer &gt;&gt;&gt; (_buflen - 8) ) &amp; 0xff;
+      _buflen -= 8;
+      return n;
+    };
+
+    var decode = function(c) {
+      if (0x41 &lt;= c &amp;&amp; c &lt;= 0x5a) {
+        return c - 0x41;
+      } else if (0x61 &lt;= c &amp;&amp; c &lt;= 0x7a) {
+        return c - 0x61 + 26;
+      } else if (0x30 &lt;= c &amp;&amp; c &lt;= 0x39) {
+        return c - 0x30 + 52;
+      } else if (c == 0x2b) {
+        return 62;
+      } else if (c == 0x2f) {
+        return 63;
+      } else {
+        throw &#x27;c:&#x27; + c;
+      }
+    };
+
+    return _this;
+  };
+
+  //---------------------------------------------------------------------
+  // gifImage (B/W)
+  //---------------------------------------------------------------------
+
+  var gifImage = function(width, height) {
+
+    var _width = width;
+    var _height = height;
+    var _data = new Array(width * height);
+
+    var _this = {};
+
+    _this.setPixel = function(x, y, pixel) {
+      _data[y * _width + x] = pixel;
+    };
+
+    _this.write = function(out) {
+
+      //---------------------------------
+      // GIF Signature
+
+      out.writeString(&#x27;GIF87a&#x27;);
+
+      //---------------------------------
+      // Screen Descriptor
+
+      out.writeShort(_width);
+      out.writeShort(_height);
+
+      out.writeByte(0x80); // 2bit
+      out.writeByte(0);
+      out.writeByte(0);
+
+      //---------------------------------
+      // Global Color Map
+
+      // black
+      out.writeByte(0x00);
+      out.writeByte(0x00);
+      out.writeByte(0x00);
+
+      // white
+      out.writeByte(0xff);
+      out.writeByte(0xff);
+      out.writeByte(0xff);
+
+      //---------------------------------
+      // Image Descriptor
+
+      out.writeString(&#x27;,&#x27;);
+      out.writeShort(0);
+      out.writeShort(0);
+      out.writeShort(_width);
+      out.writeShort(_height);
+      out.writeByte(0);
+
+      //---------------------------------
+      // Local Color Map
+
+      //---------------------------------
+      // Raster Data
+
+      var lzwMinCodeSize = 2;
+      var raster = getLZWRaster(lzwMinCodeSize);
+
+      out.writeByte(lzwMinCodeSize);
+
+      var offset = 0;
+
+      while (raster.length - offset &gt; 255) {
+        out.writeByte(255);
+        out.writeBytes(raster, offset, 255);
+        offset += 255;
+      }
+
+      out.writeByte(raster.length - offset);
+      out.writeBytes(raster, offset, raster.length - offset);
+      out.writeByte(0x00);
+
+      //---------------------------------
+      // GIF Terminator
+      out.writeString(&#x27;;&#x27;);
+    };
+
+    var bitOutputStream = function(out) {
+
+      var _out = out;
+      var _bitLength = 0;
+      var _bitBuffer = 0;
+
+      var _this = {};
+
+      _this.write = function(data, length) {
+
+        if ( (data &gt;&gt;&gt; length) != 0) {
+          throw &#x27;length over&#x27;;
+        }
+
+        while (_bitLength + length &gt;= 8) {
+          _out.writeByte(0xff &amp; ( (data &lt;&lt; _bitLength) | _bitBuffer) );
+          length -= (8 - _bitLength);
+          data &gt;&gt;&gt;= (8 - _bitLength);
+          _bitBuffer = 0;
+          _bitLength = 0;
+        }
+
+        _bitBuffer = (data &lt;&lt; _bitLength) | _bitBuffer;
+        _bitLength = _bitLength + length;
+      };
+
+      _this.flush = function() {
+        if (_bitLength &gt; 0) {
+          _out.writeByte(_bitBuffer);
+        }
+      };
+
+      return _this;
+    };
+
+    var getLZWRaster = function(lzwMinCodeSize) {
+
+      var clearCode = 1 &lt;&lt; lzwMinCodeSize;
+      var endCode = (1 &lt;&lt; lzwMinCodeSize) + 1;
+      var bitLength = lzwMinCodeSize + 1;
+
+      // Setup LZWTable
+      var table = lzwTable();
+
+      for (var i = 0; i &lt; clearCode; i += 1) {
+        table.add(String.fromCharCode(i) );
+      }
+      table.add(String.fromCharCode(clearCode) );
+      table.add(String.fromCharCode(endCode) );
+
+      var byteOut = byteArrayOutputStream();
+      var bitOut = bitOutputStream(byteOut);
+
+      // clear code
+      bitOut.write(clearCode, bitLength);
+
+      var dataIndex = 0;
+
+      var s = String.fromCharCode(_data[dataIndex]);
+      dataIndex += 1;
+
+      while (dataIndex &lt; _data.length) {
+
+        var c = String.fromCharCode(_data[dataIndex]);
+        dataIndex += 1;
+
+        if (table.contains(s + c) ) {
+
+          s = s + c;
+
+        } else {
+
+          bitOut.write(table.indexOf(s), bitLength);
+
+          if (table.size() &lt; 0xfff) {
+
+            if (table.size() == (1 &lt;&lt; bitLength) ) {
+              bitLength += 1;
+            }
+
+            table.add(s + c);
+          }
+
+          s = c;
+        }
+      }
+
+      bitOut.write(table.indexOf(s), bitLength);
+
+      // end code
+      bitOut.write(endCode, bitLength);
+
+      bitOut.flush();
+
+      return byteOut.toByteArray();
+    };
+
+    var lzwTable = function() {
+
+      var _map = {};
+      var _size = 0;
+
+      var _this = {};
+
+      _this.add = function(key) {
+        if (_this.contains(key) ) {
+          throw &#x27;dup key:&#x27; + key;
+        }
+        _map[key] = _size;
+        _size += 1;
+      };
+
+      _this.size = function() {
+        return _size;
+      };
+
+      _this.indexOf = function(key) {
+        return _map[key];
+      };
+
+      _this.contains = function(key) {
+        return typeof _map[key] != &#x27;undefined&#x27;;
+      };
+
+      return _this;
+    };
+
+    return _this;
+  };
+
+  var createDataURL = function(width, height, getPixel) {
+    var gif = gifImage(width, height);
+    for (var y = 0; y &lt; height; y += 1) {
+      for (var x = 0; x &lt; width; x += 1) {
+        gif.setPixel(x, y, getPixel(x, y) );
+      }
+    }
+
+    var b = byteArrayOutputStream();
+    gif.write(b);
+
+    var base64 = base64EncodeOutputStream();
+    var bytes = b.toByteArray();
+    for (var i = 0; i &lt; bytes.length; i += 1) {
+      base64.writeByte(bytes[i]);
+    }
+    base64.flush();
+
+    return &#x27;data:image/gif;base64,&#x27; + base64;
+  };
+
+  //---------------------------------------------------------------------
+  // returns qrcode function.
+
+  return qrcode;
+}();
+
+// multibyte support
+!function() {
+
+  qrcode.stringToBytesFuncs[&#x27;UTF-8&#x27;] = function(s) {
+    // http://stackoverflow.com/questions/18729405/how-to-convert-utf8-string-to-byte-array
+    function toUTF8Array(str) {
+      var utf8 = [];
+      for (var i=0; i &lt; str.length; i++) {
+        var charcode = str.charCodeAt(i);
+        if (charcode &lt; 0x80) utf8.push(charcode);
+        else if (charcode &lt; 0x800) {
+          utf8.push(0xc0 | (charcode &gt;&gt; 6),
+              0x80 | (charcode &amp; 0x3f));
+        }
+        else if (charcode &lt; 0xd800 || charcode &gt;= 0xe000) {
+          utf8.push(0xe0 | (charcode &gt;&gt; 12),
+              0x80 | ((charcode&gt;&gt;6) &amp; 0x3f),
+              0x80 | (charcode &amp; 0x3f));
+        }
+        // surrogate pair
+        else {
+          i++;
+          // UTF-16 encodes 0x10000-0x10FFFF by
+          // subtracting 0x10000 and splitting the
+          // 20 bits of 0x0-0xFFFFF into two halves
+          charcode = 0x10000 + (((charcode &amp; 0x3ff)&lt;&lt;10)
+            | (str.charCodeAt(i) &amp; 0x3ff));
+          utf8.push(0xf0 | (charcode &gt;&gt;18),
+              0x80 | ((charcode&gt;&gt;12) &amp; 0x3f),
+              0x80 | ((charcode&gt;&gt;6) &amp; 0x3f),
+              0x80 | (charcode &amp; 0x3f));
+        }
+      }
+      return utf8;
+    }
+    return toUTF8Array(s);
+  };
+
+}();
+
+(function (factory) {
+  if (typeof define === &#x27;function&#x27; &amp;&amp; define.amd) {
+      define([], factory);
+  } else if (typeof exports === &#x27;object&#x27;) {
+      module.exports = factory();
+  }
+}(function () {
+    return qrcode;
+}));
+&lt;/script&gt;
+&lt;script&gt;// Service settings: one block per service. Read by both the app and the server.
+// Each deployment chooses its block with `profile` in config.js (app) and ACCTS_PROFILE in functions/.env (server).
+//
+// Team fields:
+//   id            short code, lower case letters, numbers and dashes (don&#x27;t change once in use)
+//   name          as shown to staff
+//   start, end    shift times &quot;HH:MM&quot;. Leave both out for a team people can sign on to at any time (see shiftHours).
+//   shiftHours    for teams without set times: how long a sign-on lasts (default 12)
+//   ackNeeded     how many people must acknowledge a confirmed-job alarm
+//   ackEachRole   true = instead, one person in each role on the team must acknowledge
+//   repeatSec     how often an unacknowledged alarm repeats
+//   potentialLoud true = potential-job alerts also sound through silent mode (once, no repeats)
+(function (root) {
+  const PROFILES = {
+    &#x27;arcc-kss&#x27;: {
+      serviceName: &#x27;ARCC KSS&#x27;,
+      // PLACEHOLDER: roles still to be confirmed.
+      roles: [&#x27;Doctor&#x27;, &#x27;Practitioner&#x27;, &#x27;Nurse&#x27;, &#x27;Paramedic&#x27;, &#x27;Driver&#x27;],
+      teams: [
+        { id: &#x27;d0820&#x27;,  name: &#x27;Day 08–20&#x27;,   start: &#x27;08:00&#x27;, end: &#x27;20:00&#x27;, ackNeeded: 1, repeatSec: 30, potentialLoud: false },
+        { id: &#x27;d1022a&#x27;, name: &#x27;Day 10–22 A&#x27;, start: &#x27;10:00&#x27;, end: &#x27;22:00&#x27;, ackNeeded: 1, repeatSec: 30, potentialLoud: false },
+        { id: &#x27;d1022b&#x27;, name: &#x27;Day 10–22 B&#x27;, start: &#x27;10:00&#x27;, end: &#x27;22:00&#x27;, ackNeeded: 1, repeatSec: 30, potentialLoud: false },
+        { id: &#x27;d1022c&#x27;, name: &#x27;Day 10–22 C&#x27;, start: &#x27;10:00&#x27;, end: &#x27;22:00&#x27;, ackNeeded: 1, repeatSec: 30, potentialLoud: false },
+        { id: &#x27;n2008&#x27;,  name: &#x27;Night 20–08&#x27;, start: &#x27;20:00&#x27;, end: &#x27;08:00&#x27;, ackNeeded: 2, repeatSec: 30, potentialLoud: false },
+      ],
+    },
+    &#x27;access-london&#x27;: {
+      serviceName: &#x27;ACCESS London&#x27;,
+      roles: [&#x27;Transfer Doctor&#x27;, &#x27;Transfer Practitioner&#x27;],
+      // PLACEHOLDER: team names and shift times still to be confirmed. Without set times, staff can sign on at any time for 12 hours.
+      teams: [
+        { id: &#x27;team-1&#x27;, name: &#x27;Team 1&#x27;, shiftHours: 12, ackEachRole: true, repeatSec: 30, potentialLoud: false },
+        { id: &#x27;team-2&#x27;, name: &#x27;Team 2&#x27;, shiftHours: 12, ackEachRole: true, repeatSec: 30, potentialLoud: false },
+        { id: &#x27;team-3&#x27;, name: &#x27;Team 3&#x27;, shiftHours: 12, ackEachRole: true, repeatSec: 30, potentialLoud: false },
+        { id: &#x27;team-4&#x27;, name: &#x27;Team 4&#x27;, shiftHours: 12, ackEachRole: true, repeatSec: 30, potentialLoud: false },
+      ],
+    },
+  };
+  for (const p of Object.values(PROFILES)) {
+    p.alertExpireMin = p.alertExpireMin || 15;      // stop repeating a confirmed-job alarm after this long
+    p.potentialExpireMin = p.potentialExpireMin || 120; // clear a potential job never confirmed or stood down
+  }
+  if (typeof module !== &#x27;undefined&#x27; &amp;&amp; module.exports) module.exports = PROFILES;
+  else root.ACCTS_PROFILES = PROFILES;
+})(this);
+&lt;/script&gt;
 &lt;script&gt;window.DEMO_EMAIL=&#x27;lead@5beaumonts.com&#x27;;&lt;/script&gt;&lt;script&gt;// Demo stand-in for Firebase. Every phone and the dashboard share one in-memory store held by the demo page,
 // which also plays the part of the server (alarms, repeats, acknowledgements). A phone with its signal off keeps
 // its changes and sends them when switched back on.
@@ -2448,16 +5233,10 @@ window.ACCTS_CONFIG = {
   // The team lead signs in to the dashboard as lead@&lt;this domain&gt;. No emails are sent to it.
   accountDomain: &#x27;5beaumonts.com&#x27;,
 
-  // Teams by shift. If you change this list, change functions/teams.js and the team list in firestore.rules to match.
-  // ackNeeded: how many people must acknowledge a confirmed-job alarm. repeatSec: how often it repeats until then.
-  // A potential-job alert is sent once as a normal notification (set potentialLoud: true in functions/teams.js to make it override silent mode).
-  teams: [
-    { id: &#x27;d0820&#x27;,  name: &#x27;Day 08–20&#x27;,   start: &#x27;08:00&#x27;, end: &#x27;20:00&#x27;, ackNeeded: 1, repeatSec: 60 },
-    { id: &#x27;d1022a&#x27;, name: &#x27;Day 10–22 A&#x27;, start: &#x27;10:00&#x27;, end: &#x27;22:00&#x27;, ackNeeded: 1, repeatSec: 60 },
-    { id: &#x27;d1022b&#x27;, name: &#x27;Day 10–22 B&#x27;, start: &#x27;10:00&#x27;, end: &#x27;22:00&#x27;, ackNeeded: 1, repeatSec: 60 },
-    { id: &#x27;d1022c&#x27;, name: &#x27;Day 10–22 C&#x27;, start: &#x27;10:00&#x27;, end: &#x27;22:00&#x27;, ackNeeded: 1, repeatSec: 60 },
-    { id: &#x27;n2008&#x27;,  name: &#x27;Night 20–08&#x27;, start: &#x27;20:00&#x27;, end: &#x27;08:00&#x27;, ackNeeded: 2, repeatSec: 30 },
-  ],
+  // Which service this deployment is for. Teams, roles and alarm rules are in functions/profiles.js.
+  // Must match ACCTS_PROFILE in functions/.env.  &#x27;arcc-kss&#x27; or &#x27;access-london&#x27;
+  profile: &#x27;arcc-kss&#x27;,
+
   earlySignOnMin: 60,   // people can start a shift up to this long before it begins
   lateFinishHours: 6,   // after the shift ends, a team can keep recording times on a running job for this long
   alertRedAfterMin: 3,  // dashboard turns red if an alarm isn&#x27;t acknowledged within this time
@@ -2466,6 +5245,9 @@ window.ACCTS_CONFIG = {
 &lt;script&gt;// Shared by the phone app (index.html) and the team lead dashboard (lead.html).
 (() =&gt; {
   const CFG = window.ACCTS_CONFIG;
+  const PROFILE = (window.ACCTS_PROFILES || {})[CFG.profile || &#x27;arcc-kss&#x27;];
+  if (!PROFILE) throw new Error(&#x27;Unknown service profile: &#x27; + CFG.profile);
+  Object.assign(CFG, PROFILE); // serviceName, roles, teams
 
   // Edit this list to change the stage buttons. Order matters for &quot;next stage&quot;.
   // auto: filled in by the team lead&#x27;s alarm, not a button for the team.
@@ -2521,6 +5303,7 @@ window.ACCTS_CONFIG = {
   };
   // The shift this team is working now, or is about to start (within the early sign-on period).
   function shiftWindow(team, now = Date.now()) {
+    if (!team.start || !team.end) return { start: now, end: now + (team.shiftHours || 12) * 3600000 }; // no set hours: any time
     const early = (CFG.earlySignOnMin || 60) * 60000;
     for (const off of [-1, 0, 1]) {
       const s = at(now, team.start, off);
@@ -2530,6 +5313,7 @@ window.ACCTS_CONFIG = {
     return null;
   }
   function nextStart(team, now = Date.now()) {
+    if (!team.start) return now;
     const s = at(now, team.start); return s &gt; now ? s : at(now, team.start, 1);
   }
   const lateMs = () =&gt; (CFG.lateFinishHours || 6) * 3600000;
@@ -2575,6 +5359,16 @@ window.ACCTS_CONFIG = {
     return v.length ? Math.min(...v) : (cur &amp;&amp; cur.started) || null;
   };
   const isActive = (cur) =&gt; !!(cur &amp;&amp; (cur.started || Object.keys(resolve(cur)).length));
+  // One status per team, used for its colour: red alarm unanswered, amber no update for an hour, blue on a job,
+  // green available, grey nobody signed on.
+  function teamStatus({ cur, crew, alarmRed, now = Date.now() }) {
+    const st = resolve(cur); const last = latest(st); const active = isActive(cur);
+    if (alarmRed) return { cls: &#x27;red&#x27;, label: &#x27;Alarm not answered&#x27; };
+    if (active &amp;&amp; last &amp;&amp; now - last[1] &gt; 3600000) return { cls: &#x27;stale&#x27;, label: &#x27;No update 1h+&#x27; };
+    if (active) return { cls: &#x27;busy&#x27;, label: &#x27;On job&#x27; };
+    if (crew &gt; 0) return { cls: &#x27;free&#x27;, label: &#x27;Available&#x27; };
+    return { cls: &#x27;none&#x27;, label: &#x27;Nobody on&#x27; };
+  }
 
   // ---------- Firebase ----------
   let auth, db, fns;
@@ -2615,7 +5409,7 @@ window.ACCTS_CONFIG = {
 
   window.ACCTS = {
     CFG, STAGES, INTERVALS, NAME, AUTO, TEAMS, TEAM, pad, hm, hms, day, dur, gap, teamName, esc,
-    shiftWindow, nextStart, lateMs, stageTime, resolve, latest, nextStage, intervals, jobStart, isActive,
+    shiftWindow, nextStart, lateMs, stageTime, resolve, latest, nextStage, intervals, jobStart, isActive, teamStatus,
     initFirebase, leadEmail, isLead, call, teamDoc, jobsCol, dutyCol, alertsCol, onDuty, finishJob,
   };
 })();
@@ -2630,7 +5424,7 @@ window.ACCTS_CONFIG = {
   const STALE = 60 * 60000;
   const RED = (A.CFG.alertRedAfterMin || 3) * 60000;
 
-  let lead = false, boards = {}, jobsBy = {}, duty = [], devices = [], alerts = [], pub = {};
+  let lead = false, boards = {}, jobsBy = {}, duty = [], devices = [], alerts = [], pub = {}, codes = [];
   let unsub = [], confirmT = null, confirmJob = null, fresh = {}, settingsOpen = false, msg = {};
 
   auth.onAuthStateChanged((user) =&gt; {
@@ -2651,6 +5445,8 @@ window.ACCTS_CONFIG = {
       alerts = next.sort((a, b) =&gt; b.createdAt - a.createdAt); render();
     }, () =&gt; {}));
     unsub.push(db.collection(&#x27;settings&#x27;).doc(&#x27;public&#x27;).onSnapshot((s) =&gt; { pub = s.exists ? s.data() : {}; render(); }, () =&gt; {}));
+    unsub.push(db.collection(&#x27;deviceCodes&#x27;).onSnapshot((q) =&gt; { codes = q.docs.map((d) =&gt; ({ code: d.id, ...d.data() })).filter((c) =&gt; c.expires &gt; Date.now()); render(); }, () =&gt; {}));
+    document.querySelector(&#x27;.brand b&#x27;).textContent = &#x27;ACCTS · &#x27; + (A.CFG.serviceName || &#x27;Team board&#x27;);
     render();
   });
   $(&#x27;signout&#x27;).onclick = () =&gt; auth.signOut();
@@ -2747,6 +5543,15 @@ window.ACCTS_CONFIG = {
   }
 
   // ---------- new-job alarms ----------
+  // For teams needing one person in each role: &quot;Transfer Doctor ✓ Sam · Transfer Practitioner waiting&quot;.
+  function rolesProgress(a) {
+    const roles = [...new Set(Object.values(a.targets || {}).map((t) =&gt; t.role).filter(Boolean))];
+    return &#x27;Needs one of each role: &#x27; + roles.map((r) =&gt; {
+      const u = Object.keys(a.targets).find((x) =&gt; a.targets[x].role === r &amp;&amp; (a.acks || {})[x]);
+      return esc(r) + (u ? &#x27; ✓ &#x27; + esc(a.targets[u].name) : &#x27; · waiting&#x27;);
+    }).join(&#x27; · &#x27;);
+  }
+  const who = (d) =&gt; esc(d.name) + (d.role ? &#x27; · &#x27; + esc(d.role) : &#x27;&#x27;) + (d.training ? &#x27; (training)&#x27; : &#x27;&#x27;);
   const crewOf = (t, now) =&gt; duty.filter((d) =&gt; d.team === t &amp;&amp; A.onDuty(d, now));
   function sendAlarm(t, level) {
     A.alertsCol().add({ team: t, status: &#x27;new&#x27;, level, createdAt: Date.now(), createdBy: &#x27;lead&#x27; })
@@ -2770,7 +5575,7 @@ window.ACCTS_CONFIG = {
     if (a.status === &#x27;active&#x27;) {
       const red = age &gt; RED;
       return `&lt;div class=&quot;alm ${red ? &#x27;red&#x27; : &#x27;active&#x27;}&quot;&gt;&lt;b&gt;${red ? &#x27;Not acknowledged after &#x27; + dur(age) + &#x27; · phone the team&#x27; : &#x27;Alarm ringing · sent &#x27; + hm(a.createdAt)}&lt;/b&gt;
-        &lt;span&gt;${got.length} of ${a.needed} needed have acknowledged${names ? &#x27;: &#x27; + names : &#x27;&#x27;}&lt;/span&gt;
+        &lt;span&gt;${a.ackEachRole ? rolesProgress(a) : `${got.length} of ${a.needed} needed have acknowledged${names ? &#x27;: &#x27; + names : &#x27;&#x27;}`}&lt;/span&gt;
         ${waiting ? `&lt;span&gt;Still ringing: ${waiting} · repeats every ${a.repeatSec || 60} s&lt;/span&gt;` : &#x27;&#x27;}${errs}
         &lt;div&gt;&lt;button class=&quot;btn small ghost&quot; data-cancel-alarm=&quot;${a.id}&quot;&gt;Cancel alarm&lt;/button&gt;&lt;/div&gt;&lt;/div&gt;`;
     }
@@ -2815,9 +5620,10 @@ window.ACCTS_CONFIG = {
       ? `&lt;div class=&quot;confirm&quot;&gt;&lt;span class=&quot;hint&quot;&gt;Finish ${esc(team.name)}&#x27;s job and clear its board?&lt;/span&gt;
           &lt;button class=&quot;btn small primary&quot; data-fin=&quot;${t}&quot;&gt;Finish job&lt;/button&gt;&lt;button class=&quot;btn small ghost&quot; data-cancel&gt;Cancel&lt;/button&gt;&lt;/div&gt;`
       : `&lt;button class=&quot;btn small ghost&quot; data-askfin=&quot;${t}&quot;&gt;Finish this job for the team&lt;/button&gt;`;
-    return `&lt;section class=&quot;panel ${red ? &#x27;red&#x27; : stale ? &#x27;stale&#x27; : active ? &#x27;on&#x27; : &#x27;&#x27;}${ping[t] &amp;&amp; now - ping[t] &lt; 4000 ? &#x27; ping&#x27; : &#x27;&#x27;}&quot;&gt;
-      &lt;div class=&quot;ph&quot;&gt;&lt;h2&gt;${esc(team.name)}&lt;/h2&gt;&lt;span class=&quot;chip ${active ? &#x27;on&#x27; : &#x27;&#x27;}&quot;&gt;${stale ? &#x27;No update 1h+&#x27; : active ? &#x27;On job&#x27; : &#x27;Available&#x27;}&lt;/span&gt;&lt;/div&gt;
-      &lt;div class=&quot;crew&quot;&gt;${crew.length ? crew.map((d) =&gt; `&lt;div&gt;&lt;span&gt;${esc(d.name)} · until ${hm(d.until)}&lt;/span&gt;&lt;button class=&quot;x&quot; data-signoff=&quot;${d.uid}&quot; title=&quot;Sign ${esc(d.name)} off&quot;&gt;Sign off&lt;/button&gt;&lt;/div&gt;`).join(&#x27;&#x27;) : &#x27;&lt;div class=&quot;none&quot;&gt;Nobody signed on&lt;/div&gt;&#x27;}&lt;/div&gt;
+    const ts = A.teamStatus({ cur: c, crew: crew.length, alarmRed: !!red &amp;&amp; a &amp;&amp; a.status === &#x27;active&#x27;, now });
+    return `&lt;section class=&quot;panel ${red ? &#x27;red&#x27; : ts.cls}${ping[t] &amp;&amp; now - ping[t] &lt; 4000 ? &#x27; ping&#x27; : &#x27;&#x27;}&quot;&gt;
+      &lt;div class=&quot;ph&quot;&gt;&lt;h2&gt;${esc(team.name)}&lt;/h2&gt;&lt;span class=&quot;chip ${ts.cls}&quot;&gt;${ts.label}&lt;/span&gt;&lt;/div&gt;
+      &lt;div class=&quot;crew&quot;&gt;${crew.length ? crew.map((d) =&gt; `&lt;div&gt;&lt;span&gt;${who(d)} · until ${hm(d.until)}&lt;/span&gt;&lt;button class=&quot;x&quot; data-signoff=&quot;${d.uid}&quot; title=&quot;Sign ${esc(d.name)} off&quot;&gt;Sign off&lt;/button&gt;&lt;/div&gt;`).join(&#x27;&#x27;) : &#x27;&lt;div class=&quot;none&quot;&gt;Nobody signed on&lt;/div&gt;&#x27;}&lt;/div&gt;
       ${alarmBlock(t, now)}${msg[t] ? `&lt;p class=&quot;err&quot;&gt;${esc(msg[t])}&lt;/p&gt;` : &#x27;&#x27;}
       ${alarmBtn}
       ${nowBlock}
@@ -2841,11 +5647,19 @@ window.ACCTS_CONFIG = {
 
   function settingsBlock() {
     const now = Date.now();
-    const devRows = devices.sort((a, b) =&gt; a.name.localeCompare(b.name)).map((d) =&gt; {
+    const devRows = devices.sort((a, b) =&gt; (a.shared === b.shared ? a.name.localeCompare(b.name) : a.shared ? 1 : -1)).map((d) =&gt; {
       const on = duty.find((x) =&gt; x.uid === d.uid &amp;&amp; A.onDuty(x, now));
-      return `&lt;tr&gt;&lt;td&gt;${esc(d.name)}&lt;/td&gt;&lt;td class=&quot;mono&quot;&gt;${d.pushId ? esc(d.pushId) : &#x27;&lt;span class=&quot;stale&quot;&gt;not set&lt;/span&gt;&#x27;}&lt;/td&gt;&lt;td&gt;${on ? esc(A.teamName(on.team)) + &#x27; until &#x27; + hm(on.until) : &#x27;Off duty&#x27;}&lt;/td&gt;
-        &lt;td style=&quot;text-align:right;white-space:nowrap&quot;&gt;&lt;button class=&quot;btn small ghost&quot; data-testdev=&quot;${d.uid}&quot;&gt;Test alarm&lt;/button&gt;&lt;button class=&quot;btn small ghost&quot; data-rmdev=&quot;${d.uid}&quot;&gt;Remove&lt;/button&gt;&lt;/td&gt;&lt;/tr&gt;`;
+      const type = d.shared ? (d.kind === &#x27;station&#x27; ? &#x27;Shared · station for &#x27; + esc(A.teamName(d.team)) : &#x27;Shared · board (all teams)&#x27;) : &#x27;Personal phone&#x27;;
+      const status = d.shared ? &#x27;Always signed in&#x27; : on ? esc(A.teamName(on.team)) + (on.role ? &#x27; · &#x27; + esc(on.role) : &#x27;&#x27;) + &#x27; until &#x27; + hm(on.until) : &#x27;Off duty&#x27;;
+      return `&lt;tr&gt;&lt;td&gt;${esc(d.name)}&lt;/td&gt;&lt;td&gt;${type}&lt;/td&gt;&lt;td class=&quot;mono&quot;&gt;${d.shared ? &#x27;–&#x27; : d.pushId ? esc(d.pushId) : &#x27;&lt;span class=&quot;stale&quot;&gt;not set&lt;/span&gt;&#x27;}&lt;/td&gt;&lt;td&gt;${status}&lt;/td&gt;
+        &lt;td style=&quot;text-align:right;white-space:nowrap&quot;&gt;${d.shared ? &#x27;&#x27; : `&lt;button class=&quot;btn small ghost&quot; data-testdev=&quot;${d.uid}&quot;&gt;Test alarm&lt;/button&gt;`}&lt;button class=&quot;btn small ghost&quot; data-rmdev=&quot;${d.uid}&quot;&gt;Remove&lt;/button&gt;&lt;/td&gt;&lt;/tr&gt;`;
     }).join(&#x27;&#x27;);
+    const join = pub.joinCode ? appUrl() + &#x27;#join=&#x27; + encodeURIComponent(pub.joinCode) : &#x27;&#x27;;
+    const codeRows = codes.map((c) =&gt; `&lt;div class=&quot;qrcard&quot;&gt;&lt;div class=&quot;qr&quot;&gt;${qrSvg(appUrl() + &#x27;#device=&#x27; + c.code)}&lt;/div&gt;&lt;div&gt;
+        &lt;b&gt;${esc(c.name)}&lt;/b&gt;&lt;span&gt;${c.kind === &#x27;station&#x27; ? &#x27;Station for &#x27; + esc(A.teamName(c.team)) : &#x27;Board (all teams)&#x27;}&lt;/span&gt;
+        &lt;span&gt;Set-up code &lt;b class=&quot;mono&quot;&gt;${esc(c.code)}&lt;/b&gt; · valid until ${hm(c.expires)} ${day(c.expires)}&lt;/span&gt;
+        &lt;span class=&quot;hint&quot;&gt;On the device: open ACCTS, choose “Setting up a shared PC or tablet?”, then scan this or type the code. It works once.&lt;/span&gt;
+        &lt;button class=&quot;btn small ghost&quot; data-rmcode=&quot;${esc(c.code)}&quot;&gt;Delete code&lt;/button&gt;&lt;/div&gt;&lt;/div&gt;`).join(&#x27;&#x27;);
     return `&lt;details class=&quot;settings&quot; id=&quot;settings&quot; ${settingsOpen ? &#x27;open&#x27; : &#x27;&#x27;}&gt;&lt;summary&gt;Settings and registered phones&lt;/summary&gt;
       &lt;div class=&quot;setgrid&quot;&gt;
         &lt;div&gt;&lt;label class=&quot;label&quot; for=&quot;jc&quot;&gt;Join code for new phones&lt;/label&gt;
@@ -2859,10 +5673,44 @@ window.ACCTS_CONFIG = {
           &lt;button class=&quot;btn small&quot; id=&quot;savesnd&quot;&gt;Save sound&lt;/button&gt;&lt;span class=&quot;hint&quot;&gt;Use the number of the sound you liked in your Pushsafer test.&lt;/span&gt;&lt;/div&gt;
       &lt;/div&gt;
       &lt;p class=&quot;hint&quot; id=&quot;setmsg&quot;&gt;${esc(msg.settings || &#x27;&#x27;)}&lt;/p&gt;
-      &lt;span class=&quot;label&quot;&gt;Registered phones · ${devices.length}&lt;/span&gt;
-      &lt;div class=&quot;tablewrap&quot; style=&quot;margin-block:8px 14px&quot;&gt;&lt;table class=&quot;devs&quot;&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;Name&lt;/th&gt;&lt;th&gt;Pushsafer ID&lt;/th&gt;&lt;th&gt;Status&lt;/th&gt;&lt;th&gt;&lt;/th&gt;&lt;/tr&gt;&lt;/thead&gt;
-        &lt;tbody&gt;${devRows || &#x27;&lt;tr&gt;&lt;td colspan=&quot;4&quot;&gt;No phones registered yet.&lt;/td&gt;&lt;/tr&gt;&#x27;}&lt;/tbody&gt;&lt;/table&gt;&lt;/div&gt;
+      &lt;span class=&quot;label&quot;&gt;Join QR code for staff phones&lt;/span&gt;
+      ${join ? `&lt;div class=&quot;qrcard&quot;&gt;&lt;div class=&quot;qr&quot;&gt;${qrSvg(join)}&lt;/div&gt;&lt;div&gt;
+          &lt;b&gt;Scan in the ACCTS app to register a phone&lt;/b&gt;
+          &lt;span&gt;Staff open ACCTS from their Home Screen and tap &lt;b&gt;Scan QR code&lt;/b&gt;. Changing the join code above changes this QR code; phones already registered keep working.&lt;/span&gt;
+          &lt;button class=&quot;btn small&quot; id=&quot;poster&quot;&gt;Open printable poster&lt;/button&gt;&lt;/div&gt;&lt;/div&gt;`
+        : &#x27;&lt;p class=&quot;hint&quot;&gt;Save a join code above to show the QR code here.&lt;/p&gt;&#x27;}
+      &lt;span class=&quot;label&quot;&gt;Shared devices (base PC, tablets)&lt;/span&gt;
+      &lt;div class=&quot;shareform&quot;&gt;
+        &lt;input class=&quot;field&quot; id=&quot;sdname&quot; placeholder=&quot;Name, e.g. Base PC or Night vehicle iPad&quot; autocomplete=&quot;off&quot;&gt;
+        &lt;select class=&quot;field&quot; id=&quot;sdkind&quot;&gt;&lt;option value=&quot;board&quot;&gt;Board: shows all teams&lt;/option&gt;${TEAMS.map((t) =&gt; `&lt;option value=&quot;station:${t.id}&quot;&gt;Station for ${esc(t.name)}: shows and records its times&lt;/option&gt;`).join(&#x27;&#x27;)}&lt;/select&gt;
+        &lt;button class=&quot;btn small&quot; id=&quot;mkcode&quot;&gt;Make set-up code&lt;/button&gt;
+      &lt;/div&gt;
+      ${codeRows}
+      &lt;span class=&quot;label&quot;&gt;Registered devices · ${devices.length}&lt;/span&gt;
+      &lt;div class=&quot;tablewrap&quot; style=&quot;margin-block:8px 14px&quot;&gt;&lt;table class=&quot;devs&quot;&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;Name&lt;/th&gt;&lt;th&gt;Type&lt;/th&gt;&lt;th&gt;Pushsafer ID&lt;/th&gt;&lt;th&gt;Status&lt;/th&gt;&lt;th&gt;&lt;/th&gt;&lt;/tr&gt;&lt;/thead&gt;
+        &lt;tbody&gt;${devRows || &#x27;&lt;tr&gt;&lt;td colspan=&quot;5&quot;&gt;No devices registered yet.&lt;/td&gt;&lt;/tr&gt;&#x27;}&lt;/tbody&gt;&lt;/table&gt;&lt;/div&gt;
     &lt;/details&gt;`;
+  }
+  // The phone app&#x27;s address, which QR codes link to.
+  const appUrl = () =&gt; location.origin + location.pathname.replace(/lead\.html$/, &#x27;&#x27;);
+  function qrSvg(text) {
+    try { const q = qrcode(0, &#x27;M&#x27;); q.addData(text); q.make(); return q.createSvgTag({ cellSize: 4, margin: 2, scalable: true }); }
+    catch (e) { return &#x27;&lt;p class=&quot;err&quot;&gt;QR code could not be drawn.&lt;/p&gt;&#x27;; }
+  }
+  function openPoster() {
+    const w = window.open(&#x27;&#x27;, &#x27;_blank&#x27;); if (!w) { msg.settings = &#x27;Allow pop-ups to open the poster.&#x27;; render(); return; }
+    w.document.write(`&lt;!doctype html&gt;&lt;meta charset=&quot;utf-8&quot;&gt;&lt;title&gt;ACCTS join QR code&lt;/title&gt;
+      &lt;body style=&quot;font:20px/1.4 -apple-system,system-ui,sans-serif;text-align:center;padding:40px;max-width:700px;margin:auto&quot;&gt;
+      &lt;h1&gt;${esc(A.CFG.serviceName || &#x27;ACCTS&#x27;)} · ACCTS Timestamps&lt;/h1&gt;
+      &lt;div style=&quot;width:420px;max-width:100%;margin:20px auto&quot;&gt;${qrSvg(appUrl() + &#x27;#join=&#x27; + encodeURIComponent(pub.joinCode))}&lt;/div&gt;
+      &lt;ol style=&quot;text-align:left&quot;&gt;
+        &lt;li&gt;On your iPhone, open &lt;b&gt;${esc(appUrl())}&lt;/b&gt; in Safari, tap Share, then &lt;b&gt;Add to Home Screen&lt;/b&gt;.&lt;/li&gt;
+        &lt;li&gt;Open &lt;b&gt;ACCTS&lt;/b&gt; from your Home Screen and tap &lt;b&gt;Scan QR code&lt;/b&gt;. Scan this code.&lt;/li&gt;
+        &lt;li&gt;Add your name and your Pushsafer device ID. You only do this once.&lt;/li&gt;
+      &lt;/ol&gt;
+      &lt;p style=&quot;color:#555&quot;&gt;Join code: &lt;b&gt;${esc(pub.joinCode)}&lt;/b&gt;&lt;/p&gt;
+      &lt;script&gt;setTimeout(() =&gt; print(), 300)&lt;\/script&gt;&lt;/body&gt;`);
+    w.document.close();
   }
   async function saveSetting(privateData, publicData) {
     try {
@@ -2875,7 +5723,7 @@ window.ACCTS_CONFIG = {
 
   function render() {
     if (!lead) return;
-    const ae = document.activeElement; if (ae &amp;&amp; ae.closest &amp;&amp; ae.closest(&#x27;#settings&#x27;) &amp;&amp; ae.tagName === &#x27;INPUT&#x27;) return; // don&#x27;t wipe typing
+    const ae = document.activeElement; if (ae &amp;&amp; ae.closest &amp;&amp; ae.closest(&#x27;#settings&#x27;) &amp;&amp; (ae.tagName === &#x27;INPUT&#x27; || ae.tagName === &#x27;SELECT&#x27;)) return; // don&#x27;t wipe typing
     const now = Date.now();
     const shown = TEAMS.filter((t) =&gt; A.shiftWindow(t, now) || A.isActive(boards[t.id]) || crewOf(t.id, now).length
       || alerts.some((a) =&gt; a.team === t.id &amp;&amp; now - a.createdAt &lt; 30 * 60000));
@@ -2889,7 +5737,18 @@ window.ACCTS_CONFIG = {
     on(&#x27;popon&#x27;, () =&gt; { try { Notification.requestPermission().then(render); } catch (e) {} });
     on(&#x27;testalert&#x27;, () =&gt; { unlockAudio(); setTimeout(() =&gt; { beep(); popup(TEAMS[0].id, [&#x27;Test alert&#x27;, &#x27;This is how a new time will appear.&#x27;]); }, 60); });
     v.querySelector(&#x27;#settings&#x27;).ontoggle = (e) =&gt; { settingsOpen = e.target.open; };
-    on(&#x27;savejc&#x27;, () =&gt; { const c = v.querySelector(&#x27;#jc&#x27;).value.trim(); if (c.length &lt; 6) { msg.settings = &#x27;Use at least 6 characters.&#x27;; render(); return; } saveSetting({ joinCode: c }, { joinCodeSet: true }); });
+    on(&#x27;savejc&#x27;, () =&gt; { const c = v.querySelector(&#x27;#jc&#x27;).value.trim(); if (c.length &lt; 6) { msg.settings = &#x27;Use at least 6 characters.&#x27;; render(); return; } saveSetting({ joinCode: c }, { joinCodeSet: true, joinCode: c }); });
+    on(&#x27;poster&#x27;, () =&gt; openPoster());
+    on(&#x27;mkcode&#x27;, async () =&gt; {
+      const name = v.querySelector(&#x27;#sdname&#x27;).value.trim(); const kind = v.querySelector(&#x27;#sdkind&#x27;).value;
+      if (!name) { msg.settings = &#x27;Give the shared device a name.&#x27;; render(); return; }
+      const code = Array.from(crypto.getRandomValues(new Uint8Array(8)), (b) =&gt; &#x27;ABCDEFGHJKLMNPQRSTUVWXYZ23456789&#x27;[b % 32]).join(&#x27;&#x27;);
+      const [k, team] = kind.split(&#x27;:&#x27;);
+      try { await db.collection(&#x27;deviceCodes&#x27;).doc(code).set({ name, kind: k, team: team || null, created: Date.now(), expires: Date.now() + 24 * 3600000 }); msg.settings = &#x27;Set-up code made for &#x27; + name + &#x27;.&#x27;; }
+      catch (e) { msg.settings = &#x27;Not made: &#x27; + (e.message || e.code); }
+      render();
+    });
+    v.querySelectorAll(&#x27;[data-rmcode]&#x27;).forEach((b) =&gt; b.onclick = () =&gt; db.collection(&#x27;deviceCodes&#x27;).doc(b.dataset.rmcode).delete().catch(() =&gt; {}));
     on(&#x27;savepk&#x27;, () =&gt; { const k = v.querySelector(&#x27;#pk&#x27;).value.trim(); if (!k) return; saveSetting({ pushsaferKey: k }, { pushsaferSet: true }); });
     on(&#x27;savesnd&#x27;, () =&gt; { const s = v.querySelector(&#x27;#snd&#x27;).value.trim(); saveSetting({ sound: s }, { sound: s }); });
     v.querySelectorAll(&#x27;[data-ask]&#x27;).forEach((b) =&gt; b.onclick = () =&gt; { confirmT = b.dataset.ask; unlockAudio(); render(); });

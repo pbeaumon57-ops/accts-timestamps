@@ -79,7 +79,9 @@ These stay signed in permanently and aren't tied to a person.
   - The lead then presses **Confirm job · sound alarm**, which starts the full alarm below, or **Stand down**, which sends everyone a quiet "Possible job stood down" message.
   - To make potential-job alerts also sound through silent mode, set `potentialLoud: true` for that team in `functions/profiles.js`.
 - **Confirmed job:** the team lead presses **Confirmed job alarm**, or confirms a potential job.
-  - It repeats until enough people acknowledge. For ARCC KSS that's every 60 s and 1 person for day teams, and every 30 s and 2 people at night. For ACCESS London (placeholder settings) it needs one Transfer Doctor and one Transfer Practitioner.
+  - If ACCTS is open on a phone, it turns into a flashing red **NEW JOB** screen that sounds continuously until **ACKNOWLEDGE** is tapped. The phone must have been tapped at least once since ACCTS was opened, because iPhones only let a web app make sound after a tap.
+  - Pushsafer repeats its Critical Alert every 30 seconds. Choose a long alarm sound in Pushsafer so the gaps between repeats are short.
+  - It repeats until enough people acknowledge. For ARCC KSS it repeats every 30 s, until 1 person acknowledges for day teams and 2 at night. For ACCESS London (placeholder settings) it needs one Transfer Doctor and one Transfer Practitioner.
   - It stops after 15 minutes. The panel turns red if nobody has acknowledged within 3 minutes.
   - Staff acknowledge by tapping **ACKNOWLEDGE** in the alarm, or the red **NEW JOB** banner in ACCTS. The others then get a quiet "Acknowledged by …" message.
 - **Job times:** the first two times fill in automatically from a confirmed-job alarm.

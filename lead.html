@@ -14,8 +14,10 @@
   @media (min-width: 720px) { .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
   @media (min-width: 1200px) { .grid { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
   .panel { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 14px; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
-  .panel.on { border-color: color-mix(in srgb, var(--done) 45%, var(--line)); }
-  .panel.stale { border-color: color-mix(in srgb, var(--warn) 70%, var(--line)); }
+  .panel { border-top: 6px solid var(--line); }
+  .panel.free { border-top-color: var(--done); }
+  .panel.busy { border-top-color: var(--busy); }
+  .panel.stale { border-top-color: var(--warn); border-color: color-mix(in srgb, var(--warn) 70%, var(--line)); color: var(--fg); }
   .panel.red { border-color: var(--danger); box-shadow: 0 0 0 2px color-mix(in srgb, var(--danger) 40%, transparent); }
   .ph { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
   .ph h2 { margin: 0; font-size: 18px; }
@@ -305,8 +307,9 @@
       ? `<div class="confirm"><span class="hint">Finish ${esc(team.name)}'s job and clear its board?</span>
           <button class="btn small primary" data-fin="${t}">Finish job</button><button class="btn small ghost" data-cancel>Cancel</button></div>`
       : `<button class="btn small ghost" data-askfin="${t}">Finish this job for the team</button>`;
-    return `<section class="panel ${red ? 'red' : stale ? 'stale' : active ? 'on' : ''}${ping[t] && now - ping[t] < 4000 ? ' ping' : ''}">
-      <div class="ph"><h2>${esc(team.name)}</h2><span class="chip ${active ? 'on' : ''}">${stale ? 'No update 1h+' : active ? 'On job' : 'Available'}</span></div>
+    const ts = A.teamStatus({ cur: c, crew: crew.length, alarmRed: !!red && a && a.status === 'active', now });
+    return `<section class="panel ${red ? 'red' : ts.cls}${ping[t] && now - ping[t] < 4000 ? ' ping' : ''}">
+      <div class="ph"><h2>${esc(team.name)}</h2><span class="chip ${ts.cls}">${ts.label}</span></div>
       <div class="crew">${crew.length ? crew.map((d) => `<div><span>${who(d)} · until ${hm(d.until)}</span><button class="x" data-signoff="${d.uid}" title="Sign ${esc(d.name)} off">Sign off</button></div>`).join('') : '<div class="none">Nobody signed on</div>'}</div>
       ${alarmBlock(t, now)}${msg[t] ? `<p class="err">${esc(msg[t])}</p>` : ''}
       ${alarmBtn}

@@ -25,6 +25,7 @@
   <button class="tab" data-tab="history">History</button>
 </nav>
 <div class="toast" id="toast" hidden><span id="toast-msg"></span><button id="toast-undo">Undo</button></div>
+<div class="takeover" id="takeover" hidden role="alertdialog" aria-live="assertive"></div>
 <div class="scrim" id="scrim" hidden><div class="sheet" id="sheet" role="dialog" aria-modal="true"></div></div>
 
 <script src="vendor/firebase-app-compat.js"></script>
@@ -328,7 +329,7 @@
     const mine = a.targets && a.targets[uid]; const acked = a.acks && a.acks[uid];
     const names = Object.keys(a.acks || {}).filter((u) => a.targets && a.targets[u]).map((u) => esc(a.targets[u].name));
     if (a.status === 'active') {
-      if (mine && !acked) return `<button class="alarm" id="ackbtn" data-alert="${a.id}"><b>NEW JOB</b><span>Alarm sent ${hm(a.confirmedAt || a.createdAt)} · tap to acknowledge</span></button>`;
+      if (mine && !acked) return `<div class="alarm"><b>NEW JOB</b><span>Alarm sent ${hm(a.confirmedAt || a.createdAt)} · waiting for you to acknowledge</span></div>`;
       return `<div class="alarm wait"><b>New job alarm ${hm(a.confirmedAt || a.createdAt)}</b><span>${names.length} of ${a.needed} acknowledged${acked ? ' · you have' : ''}</span></div>`;
     }
     if (a.status === 'potential') {
@@ -343,6 +344,40 @@
         : `<div class="alarm wait"><b>Alarm cancelled ${hm(a.cancelledAt)}</b><span>The team lead cancelled the job alarm.</span></div>`;
     return '';
   }
+  // ---------- confirmed-job alarm: full screen, sounding until acknowledged ----------
+  // iPhones only let a web app make sound after a tap, so any tap in the app arms the alarm sound.
+  let audio = null, sirenTimer = null;
+  const armAudio = () => { try { if (!audio) audio = new (window.AudioContext || window.webkitAudioContext)(); if (audio.state === 'suspended') audio.resume(); } catch (e) {} };
+  document.addEventListener('pointerdown', armAudio, true);
+  function sirenBurst() {
+    if (!audio || audio.state !== 'running' || window.ACCTS_NO_APP_SIREN) return;
+    const t0 = audio.currentTime;
+    for (let i = 0; i < 4; i++) { // two-tone, like an emergency vehicle
+      const o = audio.createOscillator(), g = audio.createGain();
+      o.type = 'square'; o.frequency.value = i % 2 ? 740 : 988; o.connect(g); g.connect(audio.destination);
+      g.gain.setValueAtTime(0.0001, t0 + i * 0.25); g.gain.exponentialRampToValueAtTime(0.3, t0 + i * 0.25 + 0.02);
+      g.gain.setValueAtTime(0.3, t0 + i * 0.25 + 0.2); g.gain.exponentialRampToValueAtTime(0.0001, t0 + i * 0.25 + 0.24);
+      o.start(t0 + i * 0.25); o.stop(t0 + i * 0.25 + 0.25);
+    }
+  }
+  const ringing = () => { const a = alerts[0]; return a && a.status === 'active' && a.targets && a.targets[uid] && !(a.acks && a.acks[uid]) && working() ? a : null; };
+  function paintTakeover() {
+    const a = ringing(); const el = $('takeover');
+    if (!a) { el.hidden = true; el.innerHTML = ''; clearInterval(sirenTimer); sirenTimer = null; return; }
+    if (el.hidden || el.dataset.alert !== a.id) {
+      el.dataset.alert = a.id;
+      el.innerHTML = `<div class="tk-in"><b>NEW JOB</b><span class="tk-team">${esc(A.teamName(a.team))}</span>
+        <span class="tk-time" id="tk-time"></span>
+        <button class="tk-ack" id="ackbtn" data-alert="${a.id}">ACKNOWLEDGE</button>
+        <span class="tk-hint">Tap to acknowledge. The alarm keeps sounding until you do.</span></div>`;
+      el.hidden = false;
+      el.querySelector('#ackbtn').onclick = () => { const x = alerts.find((y) => y.id === a.id); if (x) acknowledge(x); el.hidden = true; clearInterval(sirenTimer); sirenTimer = null; };
+    }
+    $('tk-time').textContent = 'Alarm sent ' + hm(a.confirmedAt || a.createdAt) + ' · ' + dur(Date.now() - (a.confirmedAt || a.createdAt)) + ' ago';
+    if (!sirenTimer) { sirenBurst(); sirenTimer = setInterval(sirenBurst, 1000); }
+    try { if (navigator.vibrate) navigator.vibrate([400, 200, 400]); } catch (e) {}
+  }
+
   function syncState() {
     if (navigator.onLine === false) return ['wait', pending ? 'No signal · saved on this phone, sends when signal returns' : 'No signal · times still record'];
     if (pending) return ['wait', 'Sending…'];
@@ -405,8 +440,9 @@
       const c = boards[t.id]; const st = A.resolve(c); const last = A.latest(st); const active = A.isActive(c);
       const since = last ? now - last[1] : null;
       const crew = allDuty.filter((d) => d.team === t.id && A.onDuty(d, now)).map(who);
-      return `<div class="teamcard ${t.id === myTeam() ? 'mine' : ''}">
-        <b>${esc(t.name)}${t.id === myTeam() ? ' (you)' : ''}</b><span class="chip ${active ? 'on' : ''}">${active ? 'On job' : 'Available'}</span>
+      const ts = A.teamStatus({ cur: c, crew: crew.length, now });
+      return `<div class="teamcard ${ts.cls} ${t.id === myTeam() ? 'mine' : ''}">
+        <b>${esc(t.name)}${t.id === myTeam() ? ' (you)' : ''}</b><span class="chip ${ts.cls}">${ts.label}</span>
         <span class="st">${last ? NAME[last[0]] : active ? 'Job started' : 'No active job'}</span>
         <span class="meta">${crew.length ? crew.join(', ') : 'Nobody signed on'}</span>
         <span class="since ${since > 3600000 ? 'stale' : ''}">${last ? dur(since) + ' ago' : ''}</span>
@@ -452,6 +488,7 @@
     on('test', () => testAlarm(v.querySelector('#test'), v.querySelector('#testout')));
     on('back', () => { view = 'history'; render(); });
     on('ackbtn', () => { const a = alerts.find((x) => x.id === v.querySelector('#ackbtn').dataset.alert); if (a) acknowledge(a); });
+    paintTakeover();
   }
   document.querySelectorAll('[data-tab]').forEach((b) => b.onclick = () => { view = b.dataset.tab; render(); scrollTo(0, 0); });
   window.addEventListener('online', render); window.addEventListener('offline', render);
@@ -460,6 +497,7 @@
   function tick() {
     const now = Date.now(); $('clock').textContent = hms(now);
     if (!device) return;
+    if (!$('takeover').hidden) paintTakeover();
     const w = working();
     const changed = wasWorking !== null && w !== wasWorking;
     wasWorking = w;

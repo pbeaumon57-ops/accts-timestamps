@@ -115,6 +115,16 @@
     return v.length ? Math.min(...v) : (cur && cur.started) || null;
   };
   const isActive = (cur) => !!(cur && (cur.started || Object.keys(resolve(cur)).length));
+  // One status per team, used for its colour: red alarm unanswered, amber no update for an hour, blue on a job,
+  // green available, grey nobody signed on.
+  function teamStatus({ cur, crew, alarmRed, now = Date.now() }) {
+    const st = resolve(cur); const last = latest(st); const active = isActive(cur);
+    if (alarmRed) return { cls: 'red', label: 'Alarm not answered' };
+    if (active && last && now - last[1] > 3600000) return { cls: 'stale', label: 'No update 1h+' };
+    if (active) return { cls: 'busy', label: 'On job' };
+    if (crew > 0) return { cls: 'free', label: 'Available' };
+    return { cls: 'none', label: 'Nobody on' };
+  }
 
   // ---------- Firebase ----------
   let auth, db, fns;
@@ -155,7 +165,7 @@
 
   window.ACCTS = {
     CFG, STAGES, INTERVALS, NAME, AUTO, TEAMS, TEAM, pad, hm, hms, day, dur, gap, teamName, esc,
-    shiftWindow, nextStart, lateMs, stageTime, resolve, latest, nextStage, intervals, jobStart, isActive,
+    shiftWindow, nextStart, lateMs, stageTime, resolve, latest, nextStage, intervals, jobStart, isActive, teamStatus,
     initFirebase, leadEmail, isLead, call, teamDoc, jobsCol, dutyCol, alertsCol, onDuty, finishJob,
   };
 })();
