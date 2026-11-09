@@ -151,6 +151,23 @@
   const alertsCol = () => db.collection('alerts');
   const onDuty = (d, now = Date.now()) => d && d.until > now;
 
+  // Keep the app up to date. When a new version of the offline helper takes over, reload the page so the new
+  // version shows, but wait while someone is busy (typing, a form open, an alarm on screen). Also check for a new
+  // version whenever the app comes back on screen.
+  function watchForUpdates(isBusy) {
+    if (!('serviceWorker' in navigator)) return;
+    navigator.serviceWorker.register('sw.js').catch(() => {});
+    const hadHelper = !!navigator.serviceWorker.controller; // first visit: nothing old to replace
+    let waiting = false;
+    const busy = () => { try { return !!(isBusy && isBusy()); } catch (e) { return false; } };
+    const reload = () => { if (busy()) { waiting = true; return; } location.reload(); };
+    navigator.serviceWorker.addEventListener('controllerchange', () => { if (hadHelper) reload(); });
+    setInterval(() => { if (waiting && !busy()) location.reload(); }, 5000);
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') navigator.serviceWorker.getRegistration().then((r) => r && r.update()).catch(() => {});
+    });
+  }
+
   // Close a running job: save its final times to the team's history and clear the board.
   async function finishJob(t, cur, by) {
     const stamps = resolve(cur);
@@ -166,6 +183,6 @@
   window.ACCTS = {
     CFG, STAGES, INTERVALS, NAME, AUTO, TEAMS, TEAM, pad, hm, hms, day, dur, gap, teamName, esc,
     shiftWindow, nextStart, lateMs, stageTime, resolve, latest, nextStage, intervals, jobStart, isActive, teamStatus,
-    initFirebase, leadEmail, isLead, call, teamDoc, jobsCol, dutyCol, alertsCol, onDuty, finishJob,
+    initFirebase, watchForUpdates, leadEmail, isLead, call, teamDoc, jobsCol, dutyCol, alertsCol, onDuty, finishJob,
   };
 })();

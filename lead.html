@@ -461,6 +461,8 @@
   }
   setInterval(() => { $('clock').textContent = hms(Date.now()); }, 1000);
   setInterval(render, 15000);
+  A.watchForUpdates(() => confirmT !== null || confirmJob !== null
+    || (document.activeElement && /INPUT|SELECT|TEXTAREA/.test(document.activeElement.tagName)));
 })();
 </script>
 </body>

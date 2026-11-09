@@ -521,7 +521,8 @@
   }
   document.addEventListener('visibilitychange', () => { keepAwake(); render(); }); setInterval(keepAwake, 15000);
 
-  if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
+  A.watchForUpdates(() => !$('scrim').hidden || !$('takeover').hidden
+    || (document.activeElement && /INPUT|SELECT|TEXTAREA/.test(document.activeElement.tagName)));
 })();
 </script>
 </body>

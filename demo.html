@@ -837,6 +837,23 @@ window.ACCTS_CONFIG = {
   const alertsCol = () =&gt; db.collection(&#x27;alerts&#x27;);
   const onDuty = (d, now = Date.now()) =&gt; d &amp;&amp; d.until &gt; now;
 
+  // Keep the app up to date. When a new version of the offline helper takes over, reload the page so the new
+  // version shows, but wait while someone is busy (typing, a form open, an alarm on screen). Also check for a new
+  // version whenever the app comes back on screen.
+  function watchForUpdates(isBusy) {
+    if (!(&#x27;serviceWorker&#x27; in navigator)) return;
+    navigator.serviceWorker.register(&#x27;sw.js&#x27;).catch(() =&gt; {});
+    const hadHelper = !!navigator.serviceWorker.controller; // first visit: nothing old to replace
+    let waiting = false;
+    const busy = () =&gt; { try { return !!(isBusy &amp;&amp; isBusy()); } catch (e) { return false; } };
+    const reload = () =&gt; { if (busy()) { waiting = true; return; } location.reload(); };
+    navigator.serviceWorker.addEventListener(&#x27;controllerchange&#x27;, () =&gt; { if (hadHelper) reload(); });
+    setInterval(() =&gt; { if (waiting &amp;&amp; !busy()) location.reload(); }, 5000);
+    document.addEventListener(&#x27;visibilitychange&#x27;, () =&gt; {
+      if (document.visibilityState === &#x27;visible&#x27;) navigator.serviceWorker.getRegistration().then((r) =&gt; r &amp;&amp; r.update()).catch(() =&gt; {});
+    });
+  }
+
   // Close a running job: save its final times to the team&#x27;s history and clear the board.
   async function finishJob(t, cur, by) {
     const stamps = resolve(cur);
@@ -852,7 +869,7 @@ window.ACCTS_CONFIG = {
   window.ACCTS = {
     CFG, STAGES, INTERVALS, NAME, AUTO, TEAMS, TEAM, pad, hm, hms, day, dur, gap, teamName, esc,
     shiftWindow, nextStart, lateMs, stageTime, resolve, latest, nextStage, intervals, jobStart, isActive, teamStatus,
-    initFirebase, leadEmail, isLead, call, teamDoc, jobsCol, dutyCol, alertsCol, onDuty, finishJob,
+    initFirebase, watchForUpdates, leadEmail, isLead, call, teamDoc, jobsCol, dutyCol, alertsCol, onDuty, finishJob,
   };
 })();
 &lt;/script&gt;&lt;script&gt;(() =&gt; { const A = window.ACCTS, H = window.parent.__ACCTS_HUB; const on = [&#x27;d1022a&#x27;, &#x27;d1022b&#x27;, &#x27;d1022c&#x27;, &#x27;n2008&#x27;];
@@ -1342,7 +1359,8 @@ window.ACCTS_CONFIG = {
   }
   document.addEventListener(&#x27;visibilitychange&#x27;, () =&gt; { keepAwake(); render(); }); setInterval(keepAwake, 15000);
 
-  
+  A.watchForUpdates(() =&gt; !$(&#x27;scrim&#x27;).hidden || !$(&#x27;takeover&#x27;).hidden
+    || (document.activeElement &amp;&amp; /INPUT|SELECT|TEXTAREA/.test(document.activeElement.tagName)));
 })();
 &lt;/script&gt;
 &lt;/body&gt;
@@ -1923,6 +1941,23 @@ window.ACCTS_CONFIG = {
   const alertsCol = () =&gt; db.collection(&#x27;alerts&#x27;);
   const onDuty = (d, now = Date.now()) =&gt; d &amp;&amp; d.until &gt; now;
 
+  // Keep the app up to date. When a new version of the offline helper takes over, reload the page so the new
+  // version shows, but wait while someone is busy (typing, a form open, an alarm on screen). Also check for a new
+  // version whenever the app comes back on screen.
+  function watchForUpdates(isBusy) {
+    if (!(&#x27;serviceWorker&#x27; in navigator)) return;
+    navigator.serviceWorker.register(&#x27;sw.js&#x27;).catch(() =&gt; {});
+    const hadHelper = !!navigator.serviceWorker.controller; // first visit: nothing old to replace
+    let waiting = false;
+    const busy = () =&gt; { try { return !!(isBusy &amp;&amp; isBusy()); } catch (e) { return false; } };
+    const reload = () =&gt; { if (busy()) { waiting = true; return; } location.reload(); };
+    navigator.serviceWorker.addEventListener(&#x27;controllerchange&#x27;, () =&gt; { if (hadHelper) reload(); });
+    setInterval(() =&gt; { if (waiting &amp;&amp; !busy()) location.reload(); }, 5000);
+    document.addEventListener(&#x27;visibilitychange&#x27;, () =&gt; {
+      if (document.visibilityState === &#x27;visible&#x27;) navigator.serviceWorker.getRegistration().then((r) =&gt; r &amp;&amp; r.update()).catch(() =&gt; {});
+    });
+  }
+
   // Close a running job: save its final times to the team&#x27;s history and clear the board.
   async function finishJob(t, cur, by) {
     const stamps = resolve(cur);
@@ -1938,7 +1973,7 @@ window.ACCTS_CONFIG = {
   window.ACCTS = {
     CFG, STAGES, INTERVALS, NAME, AUTO, TEAMS, TEAM, pad, hm, hms, day, dur, gap, teamName, esc,
     shiftWindow, nextStart, lateMs, stageTime, resolve, latest, nextStage, intervals, jobStart, isActive, teamStatus,
-    initFirebase, leadEmail, isLead, call, teamDoc, jobsCol, dutyCol, alertsCol, onDuty, finishJob,
+    initFirebase, watchForUpdates, leadEmail, isLead, call, teamDoc, jobsCol, dutyCol, alertsCol, onDuty, finishJob,
   };
 })();
 &lt;/script&gt;&lt;script&gt;(() =&gt; { const A = window.ACCTS, H = window.parent.__ACCTS_HUB; const on = [&#x27;d1022a&#x27;, &#x27;d1022b&#x27;, &#x27;d1022c&#x27;, &#x27;n2008&#x27;];
@@ -2428,7 +2463,8 @@ window.ACCTS_CONFIG = {
   }
   document.addEventListener(&#x27;visibilitychange&#x27;, () =&gt; { keepAwake(); render(); }); setInterval(keepAwake, 15000);
 
-  
+  A.watchForUpdates(() =&gt; !$(&#x27;scrim&#x27;).hidden || !$(&#x27;takeover&#x27;).hidden
+    || (document.activeElement &amp;&amp; /INPUT|SELECT|TEXTAREA/.test(document.activeElement.tagName)));
 })();
 &lt;/script&gt;
 &lt;/body&gt;
@@ -5395,6 +5431,23 @@ window.ACCTS_CONFIG = {
   const alertsCol = () =&gt; db.collection(&#x27;alerts&#x27;);
   const onDuty = (d, now = Date.now()) =&gt; d &amp;&amp; d.until &gt; now;
 
+  // Keep the app up to date. When a new version of the offline helper takes over, reload the page so the new
+  // version shows, but wait while someone is busy (typing, a form open, an alarm on screen). Also check for a new
+  // version whenever the app comes back on screen.
+  function watchForUpdates(isBusy) {
+    if (!(&#x27;serviceWorker&#x27; in navigator)) return;
+    navigator.serviceWorker.register(&#x27;sw.js&#x27;).catch(() =&gt; {});
+    const hadHelper = !!navigator.serviceWorker.controller; // first visit: nothing old to replace
+    let waiting = false;
+    const busy = () =&gt; { try { return !!(isBusy &amp;&amp; isBusy()); } catch (e) { return false; } };
+    const reload = () =&gt; { if (busy()) { waiting = true; return; } location.reload(); };
+    navigator.serviceWorker.addEventListener(&#x27;controllerchange&#x27;, () =&gt; { if (hadHelper) reload(); });
+    setInterval(() =&gt; { if (waiting &amp;&amp; !busy()) location.reload(); }, 5000);
+    document.addEventListener(&#x27;visibilitychange&#x27;, () =&gt; {
+      if (document.visibilityState === &#x27;visible&#x27;) navigator.serviceWorker.getRegistration().then((r) =&gt; r &amp;&amp; r.update()).catch(() =&gt; {});
+    });
+  }
+
   // Close a running job: save its final times to the team&#x27;s history and clear the board.
   async function finishJob(t, cur, by) {
     const stamps = resolve(cur);
@@ -5410,7 +5463,7 @@ window.ACCTS_CONFIG = {
   window.ACCTS = {
     CFG, STAGES, INTERVALS, NAME, AUTO, TEAMS, TEAM, pad, hm, hms, day, dur, gap, teamName, esc,
     shiftWindow, nextStart, lateMs, stageTime, resolve, latest, nextStage, intervals, jobStart, isActive, teamStatus,
-    initFirebase, leadEmail, isLead, call, teamDoc, jobsCol, dutyCol, alertsCol, onDuty, finishJob,
+    initFirebase, watchForUpdates, leadEmail, isLead, call, teamDoc, jobsCol, dutyCol, alertsCol, onDuty, finishJob,
   };
 })();
 &lt;/script&gt;&lt;script&gt;(() =&gt; { const A = window.ACCTS, H = window.parent.__ACCTS_HUB; const on = [&#x27;d1022a&#x27;, &#x27;d1022b&#x27;, &#x27;d1022c&#x27;, &#x27;n2008&#x27;];
@@ -5774,6 +5827,8 @@ window.ACCTS_CONFIG = {
   }
   setInterval(() =&gt; { $(&#x27;clock&#x27;).textContent = hms(Date.now()); }, 1000);
   setInterval(render, 15000);
+  A.watchForUpdates(() =&gt; confirmT !== null || confirmJob !== null
+    || (document.activeElement &amp;&amp; /INPUT|SELECT|TEXTAREA/.test(document.activeElement.tagName)));
 })();
 &lt;/script&gt;
 &lt;/body&gt;
