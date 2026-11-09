@@ -25,6 +25,14 @@ exports.register = onCall(async (req) => {
   return { ok: true };
 });
 
+// A shared device (base PC, tablet) joins with a one-time set-up code made on the dashboard.
+exports.registerShared = onCall(async (req) => {
+  if (!req.auth) throw new HttpsError('unauthenticated', 'Not signed in');
+  const [ok, msg] = await alarm.registerShared(db, req.auth.uid, (req.data || {}).code);
+  if (!ok) throw new HttpsError('permission-denied', msg);
+  return { ok: true, name: msg };
+});
+
 // Send a test alarm: a phone to itself, or the team lead to any registered phone.
 exports.testAlarm = onCall(async (req) => {
   if (!req.auth) throw new HttpsError('unauthenticated', 'Not signed in');

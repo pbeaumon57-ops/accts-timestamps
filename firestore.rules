@@ -1,12 +1,15 @@
 rules_version = '2';
 // Published automatically by the GitHub deploy (or paste into Firebase console → Firestore → Rules).
-// The lead address must match accountDomain in config.js. The team list must match config.js and functions/teams.js.
+// The lead address must match accountDomain in config.js. Teams and roles come from functions/profiles.js.
 service cloud.firestore {
   match /databases/{database}/documents {
     function signedIn() { return request.auth != null; }
     function isLead() { return signedIn() && request.auth.token.email == 'lead@5beaumonts.com'; }
     function isStaff() { return signedIn() && exists(/databases/$(database)/documents/devices/$(request.auth.uid)); }
-    function teamIds() { return ['d0820', 'd1022a', 'd1022b', 'd1022c', 'n2008']; }
+    function validTeam(t) { return t is string && t.matches('[a-z0-9-]{1,24}'); }
+    function myDevice() { return get(/databases/$(database)/documents/devices/$(request.auth.uid)).data; }
+    // A shared tablet or PC set up as a permanent station for team t.
+    function isStation(t) { return isStaff() && myDevice().get('shared', false) == true && myDevice().get('kind', '') == 'station' && myDevice().get('team', '') == t; }
     function now() { return request.time.toMillis(); }
     function myDuty() { return get(/databases/$(database)/documents/duty/$(request.auth.uid)).data; }
     // On duty for team t, or finishing a job up to 6 hours after the shift ended.
@@ -17,10 +20,10 @@ service cloud.firestore {
 
     match /teams/{t} {
       allow read: if isStaff() || isLead();
-      allow write: if t in teamIds() && (onTeam(t) || isLead());
+      allow write: if validTeam(t) && (onTeam(t) || isStation(t) || isLead());
       match /jobs/{j} {
         allow read: if isStaff() || isLead();
-        allow create: if onTeam(t) || isLead();
+        allow create: if onTeam(t) || isStation(t) || isLead();
         allow update, delete: if isLead();
       }
     }
@@ -30,7 +33,9 @@ service cloud.firestore {
       allow read: if isStaff() || isLead();
       allow create, update: if request.auth.uid == uid && isStaff()
         && request.resource.data.uid == uid
-        && request.resource.data.team in teamIds()
+        && validTeam(request.resource.data.team)
+        && request.resource.data.get('role', '') is string && request.resource.data.get('role', '').size() <= 40
+        && request.resource.data.get('training', false) is bool
         && request.resource.data.until is number
         && request.resource.data.until <= now() + 15 * 3600000;
       allow delete: if request.auth.uid == uid || isLead();
@@ -47,7 +52,7 @@ service cloud.firestore {
     // New-job alarms. The team lead raises or cancels them; each alerted person can acknowledge for themselves.
     match /alerts/{a} {
       allow read: if isStaff() || isLead();
-      allow create: if isLead() && request.resource.data.team in teamIds() && request.resource.data.status == 'new'
+      allow create: if isLead() && validTeam(request.resource.data.team) && request.resource.data.status == 'new'
         && request.resource.data.level in ['potential', 'confirmed'];
       // The team lead can cancel / stand down, or upgrade a potential job to confirmed.
       allow update: if (isLead() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'cancelledAt', 'level', 'confirmedAt'])
@@ -64,7 +69,11 @@ service cloud.firestore {
       allow read: if false;
       allow write: if isLead();
     }
-    // Non-secret settings summary shown on the dashboard (e.g. "Pushsafer key set").
+    // One-time set-up codes for shared devices. Made and seen only by the team lead; used by the server.
+    match /deviceCodes/{c} {
+      allow read, write: if isLead();
+    }
+    // Settings shown on the dashboard (e.g. "Pushsafer key set", the join code for the QR poster). Team lead only.
     match /settings/{doc} {
       allow read, write: if isLead();
     }

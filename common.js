@@ -1,6 +1,9 @@
 // Shared by the phone app (index.html) and the team lead dashboard (lead.html).
 (() => {
   const CFG = window.ACCTS_CONFIG;
+  const PROFILE = (window.ACCTS_PROFILES || {})[CFG.profile || 'arcc-kss'];
+  if (!PROFILE) throw new Error('Unknown service profile: ' + CFG.profile);
+  Object.assign(CFG, PROFILE); // serviceName, roles, teams
 
   // Edit this list to change the stage buttons. Order matters for "next stage".
   // auto: filled in by the team lead's alarm, not a button for the team.
@@ -56,6 +59,7 @@
   };
   // The shift this team is working now, or is about to start (within the early sign-on period).
   function shiftWindow(team, now = Date.now()) {
+    if (!team.start || !team.end) return { start: now, end: now + (team.shiftHours || 12) * 3600000 }; // no set hours: any time
     const early = (CFG.earlySignOnMin || 60) * 60000;
     for (const off of [-1, 0, 1]) {
       const s = at(now, team.start, off);
@@ -65,6 +69,7 @@
     return null;
   }
   function nextStart(team, now = Date.now()) {
+    if (!team.start) return now;
     const s = at(now, team.start); return s > now ? s : at(now, team.start, 1);
   }
   const lateMs = () => (CFG.lateFinishHours || 6) * 3600000;

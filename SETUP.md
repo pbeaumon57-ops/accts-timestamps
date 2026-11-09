@@ -43,7 +43,7 @@ In the repository: **Settings → Pages → Deploy from a branch → main → / 
 
 Open the dashboard, sign in, and open **Settings and registered phones**. Fill in each of these and press its **Save** button:
 
-- **Join code:** at least 6 characters. Staff use it once to register their phone.
+- **Join code:** at least 6 characters. Staff use it once to register their phone. Once saved, its **QR code** appears below, with a printable poster.
 - **Pushsafer private key:** from your pushsafer.com account page.
 - **Alarm sound number:** the Pushsafer sound you chose in your test. Leave it empty for the default.
 
@@ -52,20 +52,34 @@ Open the dashboard, sign in, and open **Settings and registered phones**. Fill i
 1. Install **Pushsafer** from the App Store and sign in. Pushsafer → Settings → turn on **Critical Alerts** and allow it. Set the critical alert volume high.
    - All phones join one Pushsafer account, the service's. Each phone has its own **device ID**, shown in the app and on pushsafer.com under Devices.
 2. Open the phone address above in **Safari → Share → Add to Home Screen**.
-3. Open ACCTS from the home screen. Enter the join code, your name and your Pushsafer device ID.
+3. Open ACCTS **from the Home Screen icon**, not Safari. Tap **Scan QR code** and scan the join QR code, or type the join code. Add your name and your Pushsafer device ID.
+   - Scan inside the app, not with the iPhone Camera app. The Camera app opens Safari, which keeps its data separately from the Home Screen app.
 4. Tap **Send me a test alarm** with the phone on silent to check it sounds.
+
+## 6. Shared devices: base PC, crew-room or vehicle tablets (once each)
+
+These stay signed in permanently and aren't tied to a person.
+
+1. On the dashboard: **Settings → Shared devices**. Give the device a name and choose its type:
+   - **Board:** shows all teams. Use it for a wall screen or base PC.
+   - **Station for a team:** shows that team's times all the time, and anyone can record on it.
+2. Press **Make set-up code**. A QR code and an 8-letter code appear. They work once, within 24 hours.
+3. On the device: open the phone address, add it to the Home Screen on an iPad, then choose **Setting up a shared PC or tablet?** Scan the QR code or type the code.
+4. Shared devices don't get new-job alarms. Remove a lost device from **Registered devices** on the dashboard.
 
 ## Day to day
 
-- **Start of shift:** ACCTS → **Start your shift** → tap your team → **Start shift**. People can sign on up to 1 hour early. They come off duty automatically at the shift end.
+- **Start of shift:** ACCTS → **Start your shift** → tap your team → choose your **role** → **Start shift**.
+  - Tick **Supernumerary or in training** if that applies. Any number of people can sign on to the same team and role.
+  - People can sign on up to 1 hour early, and come off duty automatically at the shift end.
   - A team still on a job can keep recording times for up to 6 hours after the shift ends, but gets no new alarms.
 - **Potential job:** the team lead presses **Potential job** on the team's panel.
   - Everyone on duty for that team gets one normal notification. It doesn't repeat, and it doesn't sound through silent mode, so a sleeping night team isn't woken for a maybe.
   - Staff tap **SEEN** in the alert, or the amber **POSSIBLE JOB** banner in ACCTS. The dashboard shows who has seen it.
   - The lead then presses **Confirm job · sound alarm**, which starts the full alarm below, or **Stand down**, which sends everyone a quiet "Possible job stood down" message.
-  - To make potential-job alerts also sound through silent mode, set `potentialLoud: true` for that team in `functions/teams.js`.
+  - To make potential-job alerts also sound through silent mode, set `potentialLoud: true` for that team in `functions/profiles.js`.
 - **Confirmed job:** the team lead presses **Confirmed job alarm**, or confirms a potential job.
-  - It repeats every 60 s for day teams and every 30 s for the night team, until enough people acknowledge: 1 for day teams, 2 at night.
+  - It repeats until enough people acknowledge. For ARCC KSS that's every 60 s and 1 person for day teams, and every 30 s and 2 people at night. For ACCESS London (placeholder settings) it needs one Transfer Doctor and one Transfer Practitioner.
   - It stops after 15 minutes. The panel turns red if nobody has acknowledged within 3 minutes.
   - Staff acknowledge by tapping **ACKNOWLEDGE** in the alarm, or the red **NEW JOB** banner in ACCTS. The others then get a quiet "Acknowledged by …" message.
 - **Job times:** the first two times fill in automatically from a confirmed-job alarm.
@@ -75,13 +89,17 @@ Open the dashboard, sign in, and open **Settings and registered phones**. Fill i
   - If the team is already on a job when a new alarm goes out, that job's times are left alone.
 - **End of shift:** ACCTS → **End my shift**, or let it end automatically. The team lead can also sign people off, and can remove lost or replaced phones.
 
-## Changing teams or shift times
+## Services, teams, roles and shift times
 
-Edit the team list in all three places so they match:
+All of these are in **`functions/profiles.js`**, with one block per service. Both the app and the server read this file.
 
-- `config.js`: names, hours, how many must acknowledge, repeat interval
-- `functions/teams.js`: the same names, acknowledgements and repeat intervals
-- `firestore.rules`: the list of team IDs
+- **`arcc-kss`:** ARCC KSS. The five shift teams are set up; the **roles are placeholders** until confirmed.
+- **`access-london`:** ACCESS London. Roles are Transfer Doctor and Transfer Practitioner; one of each must acknowledge an alarm. The **4 teams and their hours are placeholders**: for now, staff can sign on at any time for 12 hours.
+
+Each service runs as its own deployment, with its own Firebase project, join code and team lead login, so the two services' data stays apart. A deployment chooses its service in two places, which must match:
+
+- `config.js`: `profile: 'arcc-kss'`
+- `functions/.env`: `ACCTS_PROFILE=arcc-kss`
 
 ## Dashboard alerts for the team lead
 

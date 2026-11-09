@@ -73,6 +73,13 @@
   .setgrid > div { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
   .devs td .btn { margin-left: 4px; }
   .login { margin: 0 auto; }
+  .qrcard { display: flex; gap: 16px; align-items: flex-start; flex-wrap: wrap; padding: 12px; border: 1px solid var(--line); border-radius: 12px; margin-block: 8px 14px; }
+  .qrcard .qr { width: 160px; flex: none; background: #fff; border-radius: 8px; padding: 6px; }
+  .qrcard .qr svg { width: 100%; height: auto; display: block; }
+  .qrcard > div:last-child { display: flex; flex-direction: column; gap: 6px; min-width: 0; flex: 1 1 240px; }
+  .qrcard > div:last-child .btn { align-self: flex-start; }
+  .shareform { display: grid; grid-template-columns: 1fr 1.4fr auto; gap: 8px; margin-block: 8px; }
+  @media (max-width: 720px) { .shareform { grid-template-columns: 1fr; } }
 </style>
 </head>
 <body>
@@ -89,6 +96,8 @@
 <script src="vendor/firebase-auth-compat.js"></script>
 <script src="vendor/firebase-firestore-compat.js"></script>
 <script src="vendor/firebase-functions-compat.js"></script>
+<script src="vendor/qrcode.js"></script>
+<script src="functions/profiles.js"></script>
 <script src="config.js"></script>
 <script src="common.js"></script>
 <script>
@@ -100,7 +109,7 @@
   const STALE = 60 * 60000;
   const RED = (A.CFG.alertRedAfterMin || 3) * 60000;
 
-  let lead = false, boards = {}, jobsBy = {}, duty = [], devices = [], alerts = [], pub = {};
+  let lead = false, boards = {}, jobsBy = {}, duty = [], devices = [], alerts = [], pub = {}, codes = [];
   let unsub = [], confirmT = null, confirmJob = null, fresh = {}, settingsOpen = false, msg = {};
 
   auth.onAuthStateChanged((user) => {
@@ -121,6 +130,8 @@
       alerts = next.sort((a, b) => b.createdAt - a.createdAt); render();
     }, () => {}));
     unsub.push(db.collection('settings').doc('public').onSnapshot((s) => { pub = s.exists ? s.data() : {}; render(); }, () => {}));
+    unsub.push(db.collection('deviceCodes').onSnapshot((q) => { codes = q.docs.map((d) => ({ code: d.id, ...d.data() })).filter((c) => c.expires > Date.now()); render(); }, () => {}));
+    document.querySelector('.brand b').textContent = 'ACCTS · ' + (A.CFG.serviceName || 'Team board');
     render();
   });
   $('signout').onclick = () => auth.signOut();
@@ -217,6 +228,15 @@
   }
 
   // ---------- new-job alarms ----------
+  // For teams needing one person in each role: "Transfer Doctor ✓ Sam · Transfer Practitioner waiting".
+  function rolesProgress(a) {
+    const roles = [...new Set(Object.values(a.targets || {}).map((t) => t.role).filter(Boolean))];
+    return 'Needs one of each role: ' + roles.map((r) => {
+      const u = Object.keys(a.targets).find((x) => a.targets[x].role === r && (a.acks || {})[x]);
+      return esc(r) + (u ? ' ✓ ' + esc(a.targets[u].name) : ' · waiting');
+    }).join(' · ');
+  }
+  const who = (d) => esc(d.name) + (d.role ? ' · ' + esc(d.role) : '') + (d.training ? ' (training)' : '');
   const crewOf = (t, now) => duty.filter((d) => d.team === t && A.onDuty(d, now));
   function sendAlarm(t, level) {
     A.alertsCol().add({ team: t, status: 'new', level, createdAt: Date.now(), createdBy: 'lead' })
@@ -240,7 +260,7 @@
     if (a.status === 'active') {
       const red = age > RED;
       return `<div class="alm ${red ? 'red' : 'active'}"><b>${red ? 'Not acknowledged after ' + dur(age) + ' · phone the team' : 'Alarm ringing · sent ' + hm(a.createdAt)}</b>
-        <span>${got.length} of ${a.needed} needed have acknowledged${names ? ': ' + names : ''}</span>
+        <span>${a.ackEachRole ? rolesProgress(a) : `${got.length} of ${a.needed} needed have acknowledged${names ? ': ' + names : ''}`}</span>
         ${waiting ? `<span>Still ringing: ${waiting} · repeats every ${a.repeatSec || 60} s</span>` : ''}${errs}
         <div><button class="btn small ghost" data-cancel-alarm="${a.id}">Cancel alarm</button></div></div>`;
     }
@@ -287,7 +307,7 @@
       : `<button class="btn small ghost" data-askfin="${t}">Finish this job for the team</button>`;
     return `<section class="panel ${red ? 'red' : stale ? 'stale' : active ? 'on' : ''}${ping[t] && now - ping[t] < 4000 ? ' ping' : ''}">
       <div class="ph"><h2>${esc(team.name)}</h2><span class="chip ${active ? 'on' : ''}">${stale ? 'No update 1h+' : active ? 'On job' : 'Available'}</span></div>
-      <div class="crew">${crew.length ? crew.map((d) => `<div><span>${esc(d.name)} · until ${hm(d.until)}</span><button class="x" data-signoff="${d.uid}" title="Sign ${esc(d.name)} off">Sign off</button></div>`).join('') : '<div class="none">Nobody signed on</div>'}</div>
+      <div class="crew">${crew.length ? crew.map((d) => `<div><span>${who(d)} · until ${hm(d.until)}</span><button class="x" data-signoff="${d.uid}" title="Sign ${esc(d.name)} off">Sign off</button></div>`).join('') : '<div class="none">Nobody signed on</div>'}</div>
       ${alarmBlock(t, now)}${msg[t] ? `<p class="err">${esc(msg[t])}</p>` : ''}
       ${alarmBtn}
       ${nowBlock}
@@ -311,11 +331,19 @@
 
   function settingsBlock() {
     const now = Date.now();
-    const devRows = devices.sort((a, b) => a.name.localeCompare(b.name)).map((d) => {
+    const devRows = devices.sort((a, b) => (a.shared === b.shared ? a.name.localeCompare(b.name) : a.shared ? 1 : -1)).map((d) => {
       const on = duty.find((x) => x.uid === d.uid && A.onDuty(x, now));
-      return `<tr><td>${esc(d.name)}</td><td class="mono">${d.pushId ? esc(d.pushId) : '<span class="stale">not set</span>'}</td><td>${on ? esc(A.teamName(on.team)) + ' until ' + hm(on.until) : 'Off duty'}</td>
-        <td style="text-align:right;white-space:nowrap"><button class="btn small ghost" data-testdev="${d.uid}">Test alarm</button><button class="btn small ghost" data-rmdev="${d.uid}">Remove</button></td></tr>`;
+      const type = d.shared ? (d.kind === 'station' ? 'Shared · station for ' + esc(A.teamName(d.team)) : 'Shared · board (all teams)') : 'Personal phone';
+      const status = d.shared ? 'Always signed in' : on ? esc(A.teamName(on.team)) + (on.role ? ' · ' + esc(on.role) : '') + ' until ' + hm(on.until) : 'Off duty';
+      return `<tr><td>${esc(d.name)}</td><td>${type}</td><td class="mono">${d.shared ? '–' : d.pushId ? esc(d.pushId) : '<span class="stale">not set</span>'}</td><td>${status}</td>
+        <td style="text-align:right;white-space:nowrap">${d.shared ? '' : `<button class="btn small ghost" data-testdev="${d.uid}">Test alarm</button>`}<button class="btn small ghost" data-rmdev="${d.uid}">Remove</button></td></tr>`;
     }).join('');
+    const join = pub.joinCode ? appUrl() + '#join=' + encodeURIComponent(pub.joinCode) : '';
+    const codeRows = codes.map((c) => `<div class="qrcard"><div class="qr">${qrSvg(appUrl() + '#device=' + c.code)}</div><div>
+        <b>${esc(c.name)}</b><span>${c.kind === 'station' ? 'Station for ' + esc(A.teamName(c.team)) : 'Board (all teams)'}</span>
+        <span>Set-up code <b class="mono">${esc(c.code)}</b> · valid until ${hm(c.expires)} ${day(c.expires)}</span>
+        <span class="hint">On the device: open ACCTS, choose “Setting up a shared PC or tablet?”, then scan this or type the code. It works once.</span>
+        <button class="btn small ghost" data-rmcode="${esc(c.code)}">Delete code</button></div></div>`).join('');
     return `<details class="settings" id="settings" ${settingsOpen ? 'open' : ''}><summary>Settings and registered phones</summary>
       <div class="setgrid">
         <div><label class="label" for="jc">Join code for new phones</label>
@@ -329,10 +357,44 @@
           <button class="btn small" id="savesnd">Save sound</button><span class="hint">Use the number of the sound you liked in your Pushsafer test.</span></div>
       </div>
       <p class="hint" id="setmsg">${esc(msg.settings || '')}</p>
-      <span class="label">Registered phones · ${devices.length}</span>
-      <div class="tablewrap" style="margin-block:8px 14px"><table class="devs"><thead><tr><th>Name</th><th>Pushsafer ID</th><th>Status</th><th></th></tr></thead>
-        <tbody>${devRows || '<tr><td colspan="4">No phones registered yet.</td></tr>'}</tbody></table></div>
+      <span class="label">Join QR code for staff phones</span>
+      ${join ? `<div class="qrcard"><div class="qr">${qrSvg(join)}</div><div>
+          <b>Scan in the ACCTS app to register a phone</b>
+          <span>Staff open ACCTS from their Home Screen and tap <b>Scan QR code</b>. Changing the join code above changes this QR code; phones already registered keep working.</span>
+          <button class="btn small" id="poster">Open printable poster</button></div></div>`
+        : '<p class="hint">Save a join code above to show the QR code here.</p>'}
+      <span class="label">Shared devices (base PC, tablets)</span>
+      <div class="shareform">
+        <input class="field" id="sdname" placeholder="Name, e.g. Base PC or Night vehicle iPad" autocomplete="off">
+        <select class="field" id="sdkind"><option value="board">Board: shows all teams</option>${TEAMS.map((t) => `<option value="station:${t.id}">Station for ${esc(t.name)}: shows and records its times</option>`).join('')}</select>
+        <button class="btn small" id="mkcode">Make set-up code</button>
+      </div>
+      ${codeRows}
+      <span class="label">Registered devices · ${devices.length}</span>
+      <div class="tablewrap" style="margin-block:8px 14px"><table class="devs"><thead><tr><th>Name</th><th>Type</th><th>Pushsafer ID</th><th>Status</th><th></th></tr></thead>
+        <tbody>${devRows || '<tr><td colspan="5">No devices registered yet.</td></tr>'}</tbody></table></div>
     </details>`;
+  }
+  // The phone app's address, which QR codes link to.
+  const appUrl = () => location.origin + location.pathname.replace(/lead\.html$/, '');
+  function qrSvg(text) {
+    try { const q = qrcode(0, 'M'); q.addData(text); q.make(); return q.createSvgTag({ cellSize: 4, margin: 2, scalable: true }); }
+    catch (e) { return '<p class="err">QR code could not be drawn.</p>'; }
+  }
+  function openPoster() {
+    const w = window.open('', '_blank'); if (!w) { msg.settings = 'Allow pop-ups to open the poster.'; render(); return; }
+    w.document.write(`<!doctype html><meta charset="utf-8"><title>ACCTS join QR code</title>
+      <body style="font:20px/1.4 -apple-system,system-ui,sans-serif;text-align:center;padding:40px;max-width:700px;margin:auto">
+      <h1>${esc(A.CFG.serviceName || 'ACCTS')} · ACCTS Timestamps</h1>
+      <div style="width:420px;max-width:100%;margin:20px auto">${qrSvg(appUrl() + '#join=' + encodeURIComponent(pub.joinCode))}</div>
+      <ol style="text-align:left">
+        <li>On your iPhone, open <b>${esc(appUrl())}</b> in Safari, tap Share, then <b>Add to Home Screen</b>.</li>
+        <li>Open <b>ACCTS</b> from your Home Screen and tap <b>Scan QR code</b>. Scan this code.</li>
+        <li>Add your name and your Pushsafer device ID. You only do this once.</li>
+      </ol>
+      <p style="color:#555">Join code: <b>${esc(pub.joinCode)}</b></p>
+      <script>setTimeout(() => print(), 300)<\/script></body>`);
+    w.document.close();
   }
   async function saveSetting(privateData, publicData) {
     try {
@@ -345,7 +407,7 @@
 
   function render() {
     if (!lead) return;
-    const ae = document.activeElement; if (ae && ae.closest && ae.closest('#settings') && ae.tagName === 'INPUT') return; // don't wipe typing
+    const ae = document.activeElement; if (ae && ae.closest && ae.closest('#settings') && (ae.tagName === 'INPUT' || ae.tagName === 'SELECT')) return; // don't wipe typing
     const now = Date.now();
     const shown = TEAMS.filter((t) => A.shiftWindow(t, now) || A.isActive(boards[t.id]) || crewOf(t.id, now).length
       || alerts.some((a) => a.team === t.id && now - a.createdAt < 30 * 60000));
@@ -359,7 +421,18 @@
     on('popon', () => { try { Notification.requestPermission().then(render); } catch (e) {} });
     on('testalert', () => { unlockAudio(); setTimeout(() => { beep(); popup(TEAMS[0].id, ['Test alert', 'This is how a new time will appear.']); }, 60); });
     v.querySelector('#settings').ontoggle = (e) => { settingsOpen = e.target.open; };
-    on('savejc', () => { const c = v.querySelector('#jc').value.trim(); if (c.length < 6) { msg.settings = 'Use at least 6 characters.'; render(); return; } saveSetting({ joinCode: c }, { joinCodeSet: true }); });
+    on('savejc', () => { const c = v.querySelector('#jc').value.trim(); if (c.length < 6) { msg.settings = 'Use at least 6 characters.'; render(); return; } saveSetting({ joinCode: c }, { joinCodeSet: true, joinCode: c }); });
+    on('poster', () => openPoster());
+    on('mkcode', async () => {
+      const name = v.querySelector('#sdname').value.trim(); const kind = v.querySelector('#sdkind').value;
+      if (!name) { msg.settings = 'Give the shared device a name.'; render(); return; }
+      const code = Array.from(crypto.getRandomValues(new Uint8Array(8)), (b) => 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'[b % 32]).join('');
+      const [k, team] = kind.split(':');
+      try { await db.collection('deviceCodes').doc(code).set({ name, kind: k, team: team || null, created: Date.now(), expires: Date.now() + 24 * 3600000 }); msg.settings = 'Set-up code made for ' + name + '.'; }
+      catch (e) { msg.settings = 'Not made: ' + (e.message || e.code); }
+      render();
+    });
+    v.querySelectorAll('[data-rmcode]').forEach((b) => b.onclick = () => db.collection('deviceCodes').doc(b.dataset.rmcode).delete().catch(() => {}));
     on('savepk', () => { const k = v.querySelector('#pk').value.trim(); if (!k) return; saveSetting({ pushsaferKey: k }, { pushsaferSet: true }); });
     on('savesnd', () => { const s = v.querySelector('#snd').value.trim(); saveSetting({ sound: s }, { sound: s }); });
     v.querySelectorAll('[data-ask]').forEach((b) => b.onclick = () => { confirmT = b.dataset.ask; unlockAudio(); render(); });

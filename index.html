@@ -31,6 +31,8 @@
 <script src="vendor/firebase-auth-compat.js"></script>
 <script src="vendor/firebase-firestore-compat.js"></script>
 <script src="vendor/firebase-functions-compat.js"></script>
+<script src="vendor/jsQR.js"></script>
+<script src="functions/profiles.js"></script>
 <script src="config.js"></script>
 <script src="common.js"></script>
 <script>
@@ -47,12 +49,15 @@
   let unsub = [], teamUnsub = [], watchingTeam = null;
 
   // ---------- who am I, and what is my team right now ----------
-  const myTeam = () => (duty && duty.until + A.lateMs() > Date.now() ? duty.team : null);
-  const shiftOver = () => duty && duty.until <= Date.now();
+  // A shared device is either a permanent station for one team, or a board showing all teams.
+  const station = () => !!(device && device.shared && device.kind === 'station' && device.team);
+  const board = () => !!(device && device.shared && device.kind !== 'station');
+  const myTeam = () => (station() ? device.team : duty && duty.until + A.lateMs() > Date.now() ? duty.team : null);
+  const shiftOver = () => !station() && duty && duty.until <= Date.now();
   const cur = () => (myTeam() ? boards[myTeam()] || null : null);
   const stamps = () => A.resolve(cur());
   // After the shift ends you can finish a running job, but you're off duty once it's done.
-  const working = () => !!myTeam() && (!shiftOver() || A.isActive(cur()));
+  const working = () => station() || (!!myTeam() && (!shiftOver() || A.isActive(cur())));
 
   auth.onAuthStateChanged(async (user) => {
     [...unsub, ...dataUnsub, ...teamUnsub].forEach((f) => f()); unsub = []; dataUnsub = []; teamUnsub = []; watchingTeam = null; duty = null;
@@ -68,6 +73,8 @@
       // Team data is only readable once this phone is registered, so start listening then.
       if (device && !listening) { listening = true; listen(); }
       if (!device && listening) { listening = false; dataUnsub.forEach((f) => f()); dataUnsub = []; teamUnsub.forEach((f) => f()); teamUnsub = []; watchingTeam = null; duty = null; }
+      if (device) watchTeam();
+      if (board()) view = 'all';
       render();
     }, () => { device = null; render(); }));
     render();
@@ -181,15 +188,61 @@
     const w = A.shiftWindow(team);
     if (!w) return;
     const early = w.start > Date.now();
-    openSheet(`<h2>Start ${esc(team.name)}?</h2>
+    const roles = A.CFG.roles || [];
+    let role = roles.length === 1 ? roles[0] : null, training = false;
+    openSheet(`<h2>Start ${esc(team.name)}</h2>
+      ${roles.length ? `<span class="label">Your role this shift</span><div class="rolepick">${roles.map((r) => `<button class="rolebtn" data-role="${esc(r)}" aria-pressed="${r === role}">${esc(r)}</button>`).join('')}</div>` : ''}
+      <button class="trainbtn" id="train" aria-pressed="false"><i></i><span>Supernumerary or in training</span></button>
       <p class="hint">You'll be on duty ${early ? 'from ' + hm(w.start) + ' ' : ''}until ${hm(w.end)}${w.end - Date.now() > 12 * 3600000 ? ' tomorrow' : ''}, and get new-job alarms for this team. You come off duty automatically at the end of the shift.</p>
-      <div class="actions"><button class="btn ghost" id="cancel">Cancel</button><button class="btn primary" id="go">Start shift</button></div>`, (s) => {
+      <div class="actions"><button class="btn ghost" id="cancel">Cancel</button><button class="btn primary" id="go" ${roles.length && !role ? 'disabled' : ''}>Start shift</button></div>`, (s) => {
+      s.querySelectorAll('[data-role]').forEach((b) => b.onclick = () => {
+        role = b.dataset.role; s.querySelectorAll('[data-role]').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+        s.querySelector('#go').disabled = false;
+      });
+      s.querySelector('#train').onclick = (e) => { training = !training; e.currentTarget.setAttribute('aria-pressed', String(training)); };
       s.querySelector('#cancel').onclick = closeSheet;
       s.querySelector('#go').onclick = () => {
+        if (roles.length && !role) return;
         closeSheet();
-        A.dutyCol().doc(uid).set({ uid, name: device.name, team: team.id, from: Date.now(), until: w.end, updated: Date.now() }).catch(err);
-        toast('On duty: ' + team.name, false);
+        A.dutyCol().doc(uid).set({ uid, name: device.name, team: team.id, role: role || '', training, from: Date.now(), until: w.end, updated: Date.now() }).catch(err);
+        toast('On duty: ' + team.name + (role ? ' · ' + role : ''), false);
       };
+    });
+  }
+  const who = (d) => esc(d.name) + (d.role ? ' · ' + esc(d.role) : '') + (d.training ? ' (training)' : '');
+
+  // ---------- QR codes: scanned inside the app (the iPhone camera app would open Safari instead) ----------
+  // A code is a link: <app address>#join=CODE (personal phones) or #device=CODE (shared devices).
+  function parseCode(text) {
+    const t = String(text || '').trim();
+    const m = /[#?&](join|device)=([^&#\s]+)/i.exec(t);
+    if (m) return { kind: m[1].toLowerCase(), code: decodeURIComponent(m[2]) };
+    return t ? { kind: null, code: t } : null;
+  }
+  function scanQR(onCode) {
+    let stream = null, stopped = false;
+    const stop = () => { stopped = true; if (stream) stream.getTracks().forEach((t) => t.stop()); };
+    openSheet(`<h2>Scan the ACCTS QR code</h2>
+      <video id="qv" playsinline muted autoplay style="width:100%;aspect-ratio:1;object-fit:cover;border-radius:12px;background:#000"></video>
+      <p class="hint" id="qh">Point the camera at the QR code from the team lead.</p>
+      <button class="btn ghost" id="cancel">Cancel</button>`, async (s) => {
+      s.querySelector('#cancel').onclick = () => { stop(); closeSheet(); };
+      try { stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false }); }
+      catch (e) { s.querySelector('#qh').textContent = 'The camera isn\'t available. Allow camera access for ACCTS, or type the code instead.'; return; }
+      if (stopped) { stop(); return; }
+      const v = s.querySelector('#qv'); v.srcObject = stream; try { await v.play(); } catch (e) {}
+      const c = document.createElement('canvas'); const ctx = c.getContext('2d', { willReadFrequently: true });
+      const loop = () => {
+        if (stopped) return;
+        if (v.videoWidth) {
+          const k = Math.min(1, 640 / v.videoWidth); c.width = v.videoWidth * k; c.height = v.videoHeight * k;
+          ctx.drawImage(v, 0, 0, c.width, c.height);
+          const r = window.jsQR && jsQR(ctx.getImageData(0, 0, c.width, c.height).data, c.width, c.height, { inversionAttempts: 'dontInvert' });
+          if (r && r.data) { stop(); closeSheet(); onCode(r.data); return; }
+        }
+        requestAnimationFrame(loop);
+      };
+      loop();
     });
   }
   function endShift() {
@@ -230,22 +283,41 @@
   }
 
   // ---------- screens ----------
+  let regMode = 'person', regCode = '';
+  { const p = parseCode(location.hash); if (p && p.kind) { regMode = p.kind === 'device' ? 'shared' : 'person'; regCode = p.code; } }
   function renderRegister() {
-    $('tabs').hidden = true; $('teamline').textContent = 'ACCTS'; $('jobline').textContent = 'Set up this phone';
+    $('tabs').hidden = true; $('teamline').textContent = 'ACCTS · ' + esc(A.CFG.serviceName || ''); $('jobline').textContent = 'Set up';
+    const ios = /iPhone|iPad|iPod/.test(navigator.userAgent) && !navigator.standalone && !matchMedia('(display-mode: standalone)').matches;
+    const shared = regMode === 'shared';
     $('view').innerHTML = `<section class="section login">
-      <span class="label">Set up this phone</span>
-      <p class="hint">One time only. Ask the team lead for the join code. Your Pushsafer device ID is in the Pushsafer app and on pushsafer.com under Devices.</p>
-      <label class="label" for="code">Join code</label><input class="field" id="code" autocomplete="off" autocapitalize="off">
-      <label class="label" for="nm">Your name</label><input class="field" id="nm" autocomplete="name" placeholder="As the team will see it">
-      <label class="label" for="pid">Pushsafer device ID</label><input class="field" id="pid" inputmode="numeric" autocomplete="off">
+      ${ios ? '<div class="alarm potential wait"><b>Add ACCTS to your Home Screen first</b><span>In Safari tap Share, then Add to Home Screen. Open ACCTS from its new icon and set it up there.</span></div>' : ''}
+      <span class="label">${shared ? 'Set up a shared device' : 'Set up your phone'}</span>
+      <p class="hint">${shared ? 'For a base PC or tablet that stays signed in. The team lead makes a set-up code for it on the dashboard.'
+        : 'One time only. Scan the ACCTS QR code from the team lead, then add your name and your Pushsafer device ID (shown in the Pushsafer app).'}</p>
+      <button class="btn primary" id="scan">Scan QR code</button>
+      <label class="label" for="code">${shared ? 'Set-up code' : 'Join code'}</label><input class="field" id="code" autocomplete="off" autocapitalize="off" value="${esc(regCode)}">
+      ${shared ? '' : `<label class="label" for="nm">Your name</label><input class="field" id="nm" autocomplete="name" placeholder="As the team will see it">
+      <label class="label" for="pid">Pushsafer device ID</label><input class="field" id="pid" inputmode="numeric" autocomplete="off">`}
       <p class="err" id="rerr"></p>
-      <button class="btn primary" id="go">Register this phone</button>
+      <button class="btn ${shared ? 'primary' : ''}" id="go">${shared ? 'Set up this device' : 'Register'}</button>
+      <button class="btn ghost" id="mode">${shared ? 'This is my own phone instead' : 'Setting up a shared PC or tablet?'}</button>
     </section>`;
+    $('mode').onclick = () => { regMode = shared ? 'person' : 'shared'; regCode = ''; renderRegister(); };
+    $('scan').onclick = () => scanQR((text) => {
+      const p = parseCode(text); if (!p) return;
+      if (p.kind) regMode = p.kind === 'device' ? 'shared' : 'person';
+      regCode = p.code; renderRegister(); $('rerr').textContent = 'Code scanned.';
+      const next = $('nm'); if (next) next.focus();
+    });
     $('go').onclick = async () => {
-      const e = $('rerr'); e.textContent = 'Registering…'; $('go').disabled = true;
-      try { await A.call('register', { code: $('code').value, name: $('nm').value, pushId: $('pid').value }); e.textContent = ''; }
-      catch (x) { e.textContent = /internal|unavailable|network/i.test(x.code || '') ? 'No signal. Registration needs a connection.' : String(x.message || 'Could not register.').replace(/\s*\[\d+\]$/, ''); }
-      if ($('go')) $('go').disabled = false; // the screen has moved on once registration succeeds
+      const e = $('rerr'); e.textContent = 'Setting up…'; $('go').disabled = true;
+      const code = (parseCode($('code').value) || {}).code || '';
+      try {
+        if (shared) await A.call('registerShared', { code });
+        else await A.call('register', { code, name: $('nm').value, pushId: $('pid').value });
+        e.textContent = ''; history.replaceState(null, '', location.pathname + location.search);
+      } catch (x) { e.textContent = /internal|unavailable|network/i.test(x.code || '') ? 'No signal. Set-up needs a connection.' : String(x.message || 'Could not set up.').replace(/\s*\[\d+\]$/, ''); }
+      if ($('go')) $('go').disabled = false; // the screen has moved on once set-up succeeds
     };
   }
 
@@ -310,8 +382,10 @@
   function renderJob() {
     if (!working()) return renderOffDuty();
     const c = cur(); const st = stamps(); const active = A.isActive(c); const [cls, txt] = syncState();
+    const crew = allDuty.filter((d) => d.team === myTeam() && A.onDuty(d)).map(who);
     return `${alertBanner()}
       <div class="sync ${cls}"><i></i><span>${txt}</span></div>
+      ${station() ? `<section class="section"><span class="label">On duty now</span><p class="hint">${crew.length ? crew.join('<br>') : 'Nobody signed on'}</p></section>` : ''}
       <section class="section">
         <div class="row"><span class="label">Stages</span>
           ${undoStack.length ? '<button class="btn ghost small" id="undo">Undo last</button>' : ''}</div>
@@ -321,7 +395,7 @@
       ${ivBlock(st)}
       <section class="section">
         ${active ? '<button class="btn primary" id="finish">Finish job</button>' : ''}
-        ${shiftOver() ? '<p class="hint">Your shift has ended. Finish the job to go off duty.</p>' : '<button class="btn ghost" id="endshift">End my shift</button>'}
+        ${station() ? '' : shiftOver() ? '<p class="hint">Your shift has ended. Finish the job to go off duty.</p>' : '<button class="btn ghost" id="endshift">End my shift</button>'}
       </section>`;
   }
   function renderAll() {
@@ -330,7 +404,7 @@
     return `${working() ? alertBanner() : ''}<section class="section"><span class="label">Teams on shift</span><div class="teamcards">${shown.map((t) => {
       const c = boards[t.id]; const st = A.resolve(c); const last = A.latest(st); const active = A.isActive(c);
       const since = last ? now - last[1] : null;
-      const crew = allDuty.filter((d) => d.team === t.id && A.onDuty(d, now)).map((d) => esc(d.name));
+      const crew = allDuty.filter((d) => d.team === t.id && A.onDuty(d, now)).map(who);
       return `<div class="teamcard ${t.id === myTeam() ? 'mine' : ''}">
         <b>${esc(t.name)}${t.id === myTeam() ? ' (you)' : ''}</b><span class="chip ${active ? 'on' : ''}">${active ? 'On job' : 'Available'}</span>
         <span class="st">${last ? NAME[last[0]] : active ? 'Job started' : 'No active job'}</span>
@@ -345,7 +419,9 @@
       const s = j.stamps || {}; const v = Object.values(s); const a = v.length ? Math.min(...v) : j.started; const b = v.length ? Math.max(...v) : j.finished;
       return `<button class="job" data-job="${j.id}"><b>${day(a)} · ${hm(a)}</b><span class="dur">${dur(b - a)}</span><span>${hm(a)}–${hm(b)} · ${v.length} times</span><span></span></button>`;
     }).join('')}</div>` : '<div class="empty">Finished jobs for your team appear here.</div>';
-    return `<section class="section"><span class="label">${t ? esc(A.teamName(t)) + ' · finished jobs' : 'History'}</span>${list}</section>`;
+    const dev = device && device.shared ? `<section class="section"><span class="label">This device</span>
+      <p class="hint">Shared device “${esc(device.name)}” · ${station() ? 'station for ' + esc(A.teamName(device.team)) : 'board'}. It stays signed in. The team lead can remove it from the dashboard.</p></section>` : '';
+    return `<section class="section"><span class="label">${t ? esc(A.teamName(t)) + ' · finished jobs' : 'History'}</span>${list}</section>${dev}`;
   }
   function renderDetail() {
     const j = jobs.find((x) => x.id === detail); if (!j) { view = 'history'; return renderHistory(); }
@@ -361,7 +437,7 @@
     if (!uid || device === undefined) return;
     if (device === null) { renderRegister(); return; }
     if ($('scrim').hidden === false && $('sheet').querySelector('input')) { tick(); return; } // don't wipe a form being typed in
-    $('tabs').hidden = false;
+    $('tabs').hidden = board(); if (board()) view = 'all';
     const v = $('view');
     v.innerHTML = view === 'job' ? renderJob() : view === 'all' ? renderAll() : view === 'detail' ? renderDetail() : renderHistory();
     document.querySelectorAll('[data-tab]').forEach((b) => b.setAttribute('aria-current', (b.dataset.tab === view || (view === 'detail' && b.dataset.tab === 'history')) ? 'page' : 'false'));
@@ -388,9 +464,11 @@
     const changed = wasWorking !== null && w !== wasWorking;
     wasWorking = w;
     if (changed) { watchTeam(); render(); return; } // shift started, ended, or a late job finished
+    if (board()) { $('teamline').textContent = 'ACCTS · ' + (A.CFG.serviceName || 'Board'); $('jobline').textContent = device.name + ' · all teams'; return; }
     if (!w) { $('teamline').textContent = 'ACCTS · Off duty'; $('jobline').textContent = device.name; return; }
     const c = cur(); const st = stamps();
     $('teamline').textContent = 'ACCTS · ' + A.teamName(myTeam());
+    if (station()) { $('jobline').textContent = device.name + ' · shared station' + (A.isActive(c) ? ' · job ' + dur(now - A.jobStart(st, c)) : ''); return; }
     $('jobline').textContent = (shiftOver() ? 'Shift ended ' + hm(duty.until) + ' · finishing job' : 'On duty until ' + hm(duty.until))
       + (A.isActive(c) ? ' · job ' + dur(now - A.jobStart(st, c)) : '');
   }

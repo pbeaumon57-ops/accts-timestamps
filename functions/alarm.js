@@ -1,6 +1,10 @@
 // New-job alarm logic: who gets alerted, sending through Pushsafer, repeating until enough people acknowledge.
 const crypto = require('crypto');
-const { TEAMS, ALERT_EXPIRE_MIN, POTENTIAL_EXPIRE_MIN } = require('./teams');
+const PROFILES = require('./profiles');
+const PROFILE = PROFILES[process.env.ACCTS_PROFILE || 'arcc-kss'];
+if (!PROFILE) throw new Error('Unknown ACCTS_PROFILE ' + process.env.ACCTS_PROFILE);
+const TEAMS = Object.fromEntries(PROFILE.teams.map((t) => [t.id, t]));
+const ALERT_EXPIRE_MIN = PROFILE.alertExpireMin, POTENTIAL_EXPIRE_MIN = PROFILE.potentialExpireMin;
 
 const PUSHSAFER_URL = process.env.PUSHSAFER_URL || 'https://www.pushsafer.com/api';
 
@@ -53,6 +57,12 @@ async function markBoard(db, team, alertId, stage, time) {
 }
 
 const ackCount = (a) => Object.keys(a.acks || {}).filter((u) => a.targets && a.targets[u]).length;
+// Roles still waiting for someone to acknowledge (for teams that need one person in each role).
+const rolesWaiting = (a) => {
+  const roles = [...new Set(Object.values(a.targets || {}).map((t) => t.role).filter(Boolean))];
+  return roles.filter((r) => !Object.entries(a.targets || {}).some(([u, t]) => t.role === r && a.acks && a.acks[u]));
+};
+const ackMet = (a) => (a.ackEachRole ? ackCount(a) > 0 && rolesWaiting(a).length === 0 : !!a.needed && ackCount(a) >= a.needed);
 
 function alarmText(a, team) {
   if (a.status === 'potential') {
@@ -63,10 +73,11 @@ function alarmText(a, team) {
     };
   }
   const got = ackCount(a);
+  const waiting = a.ackEachRole ? rolesWaiting(a) : [];
   return {
     title: 'NEW JOB – ' + team.name,
-    message: a.needed > 1
-      ? `Acknowledge now. ${got} of ${a.needed} people have responded.`
+    message: a.ackEachRole && got ? `Acknowledge now. Still needed: ${waiting.join(', ')}.`
+      : a.needed > 1 ? `Acknowledge now. ${got} of ${a.needed} people have responded.`
       : 'Acknowledge now.',
     loud: true,
     urlTitle: 'ACKNOWLEDGE',
@@ -104,7 +115,8 @@ async function startAlert(db, ref, now = Date.now()) {
   for (const p of people) {
     const dev = await db.doc('devices/' + p.uid).get();
     if (!dev.exists) continue;
-    targets[p.uid] = { name: dev.data().name || p.name || 'Unknown', pushId: dev.data().pushId || '' };
+    if (dev.data().shared) continue; // shared devices don't get personal alarms
+    targets[p.uid] = { name: dev.data().name || p.name || 'Unknown', pushId: dev.data().pushId || '', role: p.role || '', training: !!p.training };
     tokens[p.uid] = crypto.randomBytes(16).toString('hex');
   }
   const n = Object.keys(targets).length;
@@ -113,10 +125,12 @@ async function startAlert(db, ref, now = Date.now()) {
     return;
   }
   const potential = a.level === 'potential';
-  const needed = potential ? 0 : Math.min(team.ackNeeded, n);
+  const eachRole = !!team.ackEachRole && !potential;
+  const roleCount = new Set(Object.values(targets).map((t) => t.role).filter(Boolean)).size;
+  const needed = potential ? 0 : eachRole ? Math.max(1, roleCount) : Math.min(team.ackNeeded || 1, n);
   const status = potential ? 'potential' : 'active';
   await ref.collection('private').doc('tokens').set(tokens);
-  const fields = { targets, needed, acks: {}, lastSent: {}, status, startedAt: now, teamName: team.name, repeatSec: team.repeatSec, sends: 0 };
+  const fields = { targets, needed, ackEachRole: eachRole, acks: {}, lastSent: {}, status, startedAt: now, teamName: team.name, repeatSec: team.repeatSec, sends: 0 };
   if (!potential && a.seen === undefined && a.acks && Object.keys(a.acks).length) fields.seen = a.acks; // keep who saw the potential job
   await ref.update(fields);
   if (!potential) await markBoard(db, a.team, ref.id, 'alerted', now);
@@ -166,7 +180,7 @@ async function afterChange(db, ref, before, after, now = Date.now()) {
     const beforeN = before ? Object.keys(before.acks || {}).length : 0;
     if (times.length && times.length !== beforeN) await markBoard(db, after.team, ref.id, 'acked', Math.min(...times));
   }
-  if (after.status === 'active' && after.needed && ackCount(after) >= after.needed) {
+  if (after.status === 'active' && ackMet(after)) {
     await ref.update({ status: 'acknowledged', ackedAt: now, endedAt: now });
     const names = Object.keys(after.acks).filter((u) => after.targets[u]).map((u) => after.targets[u].name);
     await quiet(after, 'Acknowledged by ' + names.join(', ') + '. No need to respond.');
@@ -200,4 +214,17 @@ async function ackByLink(db, q, now = Date.now()) {
   return [200, `Acknowledged${who ? ', ' + who : ''}. New job for ${al.teamName}. The team lead can see your response.`];
 }
 
-module.exports = { pushsafer, settings, startAlert, repeatAlerts, afterChange, ackByLink, ackCount };
+// A shared device (base PC, tablet) is set up with a one-time code from the dashboard.
+async function registerShared(db, uid, code, now = Date.now()) {
+  const ref = db.doc('deviceCodes/' + String(code || '').trim().toUpperCase());
+  const s = await ref.get();
+  if (!s.exists) return [false, 'That set-up code is not valid. Ask the team lead for a new one.'];
+  const c = s.data();
+  if (c.expires < now) { await ref.delete(); return [false, 'That set-up code has expired. Ask the team lead for a new one.']; }
+  if (c.kind === 'station' && !TEAMS[c.team]) return [false, 'That set-up code is for a team that no longer exists.'];
+  await db.doc('devices/' + uid).set({ name: c.name, shared: true, kind: c.kind, team: c.kind === 'station' ? c.team : null, created: now });
+  await ref.delete();
+  return [true, c.name];
+}
+
+module.exports = { pushsafer, settings, startAlert, repeatAlerts, afterChange, ackByLink, ackCount, ackMet, rolesWaiting, registerShared, TEAMS, PROFILE };
