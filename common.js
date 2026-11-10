@@ -151,6 +151,29 @@
   const alertsCol = () => db.collection('alerts');
   const onDuty = (d, now = Date.now()) => d && d.until > now;
 
+  // ---------- alarm sound ----------
+  // Low-pitched square waves woke sleepers far better than high-pitched beeps in Bruck & Thomas's studies,
+  // so both sounds use them. 'rising': a siren sweeping up 400→900 Hz over 1.6 s, every 2 s.
+  // 'pulse520': their 520 Hz three-pulse pattern (0.5 s on, 0.5 s off, three times, then 1.5 s quiet).
+  // level 0–1 sets the volume; callers build it up over the first few seconds (fire-station "ramp-up").
+  // Plays one cycle and returns its length in seconds.
+  function alarmCycle(ctx, style, level) {
+    const t0 = ctx.currentTime + 0.02; const peak = 0.4 * Math.max(0.05, Math.min(1, level));
+    const tone = (f0, f1, start, len) => {
+      const o = ctx.createOscillator(), g = ctx.createGain();
+      o.type = 'square';
+      o.frequency.setValueAtTime(f0, t0 + start);
+      if (f1 !== f0) o.frequency.exponentialRampToValueAtTime(f1, t0 + start + len);
+      g.gain.setValueAtTime(0.0001, t0 + start); g.gain.exponentialRampToValueAtTime(peak, t0 + start + 0.04);
+      g.gain.setValueAtTime(peak, t0 + start + len - 0.05); g.gain.exponentialRampToValueAtTime(0.0001, t0 + start + len);
+      o.connect(g); g.connect(ctx.destination); o.start(t0 + start); o.stop(t0 + start + len + 0.02);
+    };
+    if (style === 'pulse520') { tone(520, 520, 0, 0.5); tone(520, 520, 1, 0.5); tone(520, 520, 2, 0.5); return 4; }
+    tone(400, 900, 0, 1.6); return 2;
+  }
+  // Volume for an alarm that started at `since`: from 35% up to full over 4 seconds.
+  const alarmLevel = (since) => Math.min(1, 0.35 + 0.65 * (Date.now() - since) / 4000);
+
   // Keep the app up to date. When a new version of the offline helper takes over, reload the page so the new
   // version shows, but wait while someone is busy (typing, a form open, an alarm on screen). Also check for a new
   // version whenever the app comes back on screen.
@@ -183,6 +206,6 @@
   window.ACCTS = {
     CFG, STAGES, INTERVALS, NAME, AUTO, TEAMS, TEAM, pad, hm, hms, day, dur, gap, teamName, esc,
     shiftWindow, nextStart, lateMs, stageTime, resolve, latest, nextStage, intervals, jobStart, isActive, teamStatus,
-    initFirebase, watchForUpdates, leadEmail, isLead, call, teamDoc, jobsCol, dutyCol, alertsCol, onDuty, finishJob,
+    initFirebase, watchForUpdates, alarmCycle, alarmLevel, leadEmail, isLead, call, teamDoc, jobsCol, dutyCol, alertsCol, onDuty, finishJob,
   };
 })();

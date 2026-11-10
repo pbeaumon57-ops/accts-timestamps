@@ -44,6 +44,9 @@ h1 { margin: 0; font-size: 22px; text-wrap: balance; }
 .notes h2 { margin: 0 0 8px; font-size: 16px; }
 .notes ol { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 8px; }
 .notes p { margin: 12px 0 0; color: var(--muted); font-size: 14px; }
+.sounds { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); font-size: 14px; }
+.sounds span { color: var(--muted); }
+.sounds .reset { margin-top: 4px; }
 .reset { margin-top: 14px; min-height: 40px; padding: 6px 14px; border-radius: 10px; border: 1px solid var(--line); background: transparent; color: var(--fg); font: inherit; font-weight: 600; cursor: pointer; }
 .log { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 12px 16px; }
 .log h2 { margin: 0 0 4px; font-size: 16px; }
@@ -110,21 +113,39 @@ h1 { margin: 0; font-size: 22px; text-wrap: balance; }
   const unlock = () => { try { if (!audio) audio = new (window.AudioContext || window.webkitAudioContext)(); if (audio.state === 'suspended') audio.resume(); } catch (e) {} };
   HUB.unlock = unlock;
   document.addEventListener('pointerdown', unlock);
-  function siren() {
-    if (!audio || audio.state !== 'running') return;
-    const t0 = audio.currentTime;
-    for (let i = 0; i < 6; i++) {
-      const o = audio.createOscillator(), g = audio.createGain();
-      o.type = 'square'; o.frequency.value = i % 2 ? 740 : 988; o.connect(g); g.connect(audio.destination);
-      g.gain.setValueAtTime(0.0001, t0 + i * 0.22); g.gain.exponentialRampToValueAtTime(0.12, t0 + i * 0.22 + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t0 + i * 0.22 + 0.2);
-      o.start(t0 + i * 0.22); o.stop(t0 + i * 0.22 + 0.21);
-    }
+  // Same alarm sound as the app (see alarmCycle in common.js): low-pitched square waves, building up over 4 s.
+  let demoSound = 'rising', sirenOn = false, sirenStart = 0, sirenT = null, previewT = null;
+  function alarmCycle(ctx, style, level) {
+    const t0 = ctx.currentTime + 0.02; const peak = 0.4 * Math.max(0.05, Math.min(1, level));
+    const tone = (f0, f1, start, len) => {
+      const o = ctx.createOscillator(), g = ctx.createGain();
+      o.type = 'square'; o.frequency.setValueAtTime(f0, t0 + start);
+      if (f1 !== f0) o.frequency.exponentialRampToValueAtTime(f1, t0 + start + len);
+      g.gain.setValueAtTime(0.0001, t0 + start); g.gain.exponentialRampToValueAtTime(peak, t0 + start + 0.04);
+      g.gain.setValueAtTime(peak, t0 + start + len - 0.05); g.gain.exponentialRampToValueAtTime(0.0001, t0 + start + len);
+      o.connect(g); g.connect(ctx.destination); o.start(t0 + start); o.stop(t0 + start + len + 0.02);
+    };
+    if (style === 'pulse520') { tone(520, 520, 0, 0.5); tone(520, 520, 1, 0.5); tone(520, 520, 2, 0.5); return 4; }
+    tone(400, 900, 0, 1.6); return 2;
   }
-  // Like the real app, a phone showing the full-screen NEW JOB alarm keeps sounding until it's acknowledged.
+  const level = (since) => Math.min(1, 0.35 + 0.65 * (Date.now() - since) / 4000);
+  function loop() {
+    if (!sirenOn) return;
+    let len = 2; if (audio && audio.state === 'running') len = alarmCycle(audio, demoSound, level(sirenStart));
+    sirenT = setTimeout(loop, len * 1000);
+  }
+  // A phone showing the full-screen NEW JOB alarm keeps sounding until it's acknowledged.
   setInterval(() => {
     const showing = [...document.querySelectorAll('iframe[data-uid]')].some((f) => { try { const t = f.contentDocument.getElementById('takeover'); return t && !t.hidden; } catch (e) { return false; } });
-    if (showing) siren();
-  }, 1300);
+    if (showing && !sirenOn) { sirenOn = true; sirenStart = Date.now(); loop(); }
+    if (!showing && sirenOn) { sirenOn = false; clearTimeout(sirenT); }
+  }, 300);
+  HUB.preview = (style) => {
+    unlock(); clearTimeout(previewT); const start = Date.now();
+    const go = () => { if (Date.now() - start > 8000 || !audio) return; previewT = setTimeout(go, alarmCycle(audio, style, level(start)) * 1000); };
+    setTimeout(go, 60);
+  };
+  HUB.setSound = (style) => { demoSound = style; };
   function deliver(uid, n) {
     const dev = S()['devices/' + uid] || {};
     logRows.unshift({ at: Date.now(), who: dev.name || uid, title: n.title, loud: n.loud });
@@ -243,6 +264,8 @@ h1 { margin: 0; font-size: 22px; text-wrap: balance; }
     const w = document.getElementById(b.dataset.frame).contentWindow;
     if (w && w.__demoClient) w.__demoClient.setOnline(on);
   }));
+  document.querySelectorAll('[data-hear]').forEach((b) => b.addEventListener('click', () => HUB.preview(b.dataset.hear)));
+  document.querySelectorAll('input[name=snd]').forEach((r) => r.addEventListener('change', () => HUB.setSound(r.value)));
   document.getElementById('reset').addEventListener('click', () => {
     seed(); logRows = []; document.getElementById('log').innerHTML = '<li><span></span><span></span><span style="color:var(--muted)">Nothing sent yet.</span></li>';
     document.querySelectorAll('.sig').forEach((b) => { b.setAttribute('aria-pressed', 'true'); b.querySelector('span').textContent = 'Signal on'; });
@@ -682,6 +705,7 @@ window.ACCTS_CONFIG = {
   earlySignOnMin: 60,   // people can start a shift up to this long before it begins
   lateFinishHours: 6,   // after the shift ends, a team can keep recording times on a running job for this long
   alertRedAfterMin: 3,  // dashboard turns red if an alarm isn&#x27;t acknowledged within this time
+  alarmSound: &#x27;rising&#x27;, // in-app alarm: &#x27;rising&#x27; (rising siren) or &#x27;pulse520&#x27; (low 520 Hz pulses)
 };
 &lt;/script&gt;
 &lt;script&gt;// Shared by the phone app (index.html) and the team lead dashboard (lead.html).
@@ -837,6 +861,29 @@ window.ACCTS_CONFIG = {
   const alertsCol = () =&gt; db.collection(&#x27;alerts&#x27;);
   const onDuty = (d, now = Date.now()) =&gt; d &amp;&amp; d.until &gt; now;
 
+  // ---------- alarm sound ----------
+  // Low-pitched square waves woke sleepers far better than high-pitched beeps in Bruck &amp; Thomas&#x27;s studies,
+  // so both sounds use them. &#x27;rising&#x27;: a siren sweeping up 400→900 Hz over 1.6 s, every 2 s.
+  // &#x27;pulse520&#x27;: their 520 Hz three-pulse pattern (0.5 s on, 0.5 s off, three times, then 1.5 s quiet).
+  // level 0–1 sets the volume; callers build it up over the first few seconds (fire-station &quot;ramp-up&quot;).
+  // Plays one cycle and returns its length in seconds.
+  function alarmCycle(ctx, style, level) {
+    const t0 = ctx.currentTime + 0.02; const peak = 0.4 * Math.max(0.05, Math.min(1, level));
+    const tone = (f0, f1, start, len) =&gt; {
+      const o = ctx.createOscillator(), g = ctx.createGain();
+      o.type = &#x27;square&#x27;;
+      o.frequency.setValueAtTime(f0, t0 + start);
+      if (f1 !== f0) o.frequency.exponentialRampToValueAtTime(f1, t0 + start + len);
+      g.gain.setValueAtTime(0.0001, t0 + start); g.gain.exponentialRampToValueAtTime(peak, t0 + start + 0.04);
+      g.gain.setValueAtTime(peak, t0 + start + len - 0.05); g.gain.exponentialRampToValueAtTime(0.0001, t0 + start + len);
+      o.connect(g); g.connect(ctx.destination); o.start(t0 + start); o.stop(t0 + start + len + 0.02);
+    };
+    if (style === &#x27;pulse520&#x27;) { tone(520, 520, 0, 0.5); tone(520, 520, 1, 0.5); tone(520, 520, 2, 0.5); return 4; }
+    tone(400, 900, 0, 1.6); return 2;
+  }
+  // Volume for an alarm that started at `since`: from 35% up to full over 4 seconds.
+  const alarmLevel = (since) =&gt; Math.min(1, 0.35 + 0.65 * (Date.now() - since) / 4000);
+
   // Keep the app up to date. When a new version of the offline helper takes over, reload the page so the new
   // version shows, but wait while someone is busy (typing, a form open, an alarm on screen). Also check for a new
   // version whenever the app comes back on screen.
@@ -869,7 +916,7 @@ window.ACCTS_CONFIG = {
   window.ACCTS = {
     CFG, STAGES, INTERVALS, NAME, AUTO, TEAMS, TEAM, pad, hm, hms, day, dur, gap, teamName, esc,
     shiftWindow, nextStart, lateMs, stageTime, resolve, latest, nextStage, intervals, jobStart, isActive, teamStatus,
-    initFirebase, watchForUpdates, leadEmail, isLead, call, teamDoc, jobsCol, dutyCol, alertsCol, onDuty, finishJob,
+    initFirebase, watchForUpdates, alarmCycle, alarmLevel, leadEmail, isLead, call, teamDoc, jobsCol, dutyCol, alertsCol, onDuty, finishJob,
   };
 })();
 &lt;/script&gt;&lt;script&gt;(() =&gt; { const A = window.ACCTS, H = window.parent.__ACCTS_HUB; const on = [&#x27;d1022a&#x27;, &#x27;d1022b&#x27;, &#x27;d1022c&#x27;, &#x27;n2008&#x27;];
@@ -1184,24 +1231,20 @@ window.ACCTS_CONFIG = {
   }
   // ---------- confirmed-job alarm: full screen, sounding until acknowledged ----------
   // iPhones only let a web app make sound after a tap, so any tap in the app arms the alarm sound.
-  let audio = null, sirenTimer = null;
+  let audio = null, sirenTimer = null, sirenStart = 0;
   const armAudio = () =&gt; { try { if (!audio) audio = new (window.AudioContext || window.webkitAudioContext)(); if (audio.state === &#x27;suspended&#x27;) audio.resume(); } catch (e) {} };
   document.addEventListener(&#x27;pointerdown&#x27;, armAudio, true);
-  function sirenBurst() {
-    if (!audio || audio.state !== &#x27;running&#x27; || window.ACCTS_NO_APP_SIREN) return;
-    const t0 = audio.currentTime;
-    for (let i = 0; i &lt; 4; i++) { // two-tone, like an emergency vehicle
-      const o = audio.createOscillator(), g = audio.createGain();
-      o.type = &#x27;square&#x27;; o.frequency.value = i % 2 ? 740 : 988; o.connect(g); g.connect(audio.destination);
-      g.gain.setValueAtTime(0.0001, t0 + i * 0.25); g.gain.exponentialRampToValueAtTime(0.3, t0 + i * 0.25 + 0.02);
-      g.gain.setValueAtTime(0.3, t0 + i * 0.25 + 0.2); g.gain.exponentialRampToValueAtTime(0.0001, t0 + i * 0.25 + 0.24);
-      o.start(t0 + i * 0.25); o.stop(t0 + i * 0.25 + 0.25);
-    }
+  // Sounds cycle after cycle while the alarm is on screen, building up to full volume over the first 4 seconds.
+  function sirenLoop() {
+    let len = 2;
+    if (audio &amp;&amp; audio.state === &#x27;running&#x27; &amp;&amp; !window.ACCTS_NO_APP_SIREN) len = A.alarmCycle(audio, A.CFG.alarmSound || &#x27;rising&#x27;, A.alarmLevel(sirenStart));
+    sirenTimer = setTimeout(sirenLoop, len * 1000);
   }
+  const stopSiren = () =&gt; { clearTimeout(sirenTimer); sirenTimer = null; };
   const ringing = () =&gt; { const a = alerts[0]; return a &amp;&amp; a.status === &#x27;active&#x27; &amp;&amp; a.targets &amp;&amp; a.targets[uid] &amp;&amp; !(a.acks &amp;&amp; a.acks[uid]) &amp;&amp; working() ? a : null; };
   function paintTakeover() {
     const a = ringing(); const el = $(&#x27;takeover&#x27;);
-    if (!a) { el.hidden = true; el.innerHTML = &#x27;&#x27;; clearInterval(sirenTimer); sirenTimer = null; return; }
+    if (!a) { el.hidden = true; el.innerHTML = &#x27;&#x27;; stopSiren(); return; }
     if (el.hidden || el.dataset.alert !== a.id) {
       el.dataset.alert = a.id;
       el.innerHTML = `&lt;div class=&quot;tk-in&quot;&gt;&lt;b&gt;NEW JOB&lt;/b&gt;&lt;span class=&quot;tk-team&quot;&gt;${esc(A.teamName(a.team))}&lt;/span&gt;
@@ -1209,10 +1252,10 @@ window.ACCTS_CONFIG = {
         &lt;button class=&quot;tk-ack&quot; id=&quot;ackbtn&quot; data-alert=&quot;${a.id}&quot;&gt;ACKNOWLEDGE&lt;/button&gt;
         &lt;span class=&quot;tk-hint&quot;&gt;Tap to acknowledge. The alarm keeps sounding until you do.&lt;/span&gt;&lt;/div&gt;`;
       el.hidden = false;
-      el.querySelector(&#x27;#ackbtn&#x27;).onclick = () =&gt; { const x = alerts.find((y) =&gt; y.id === a.id); if (x) acknowledge(x); el.hidden = true; clearInterval(sirenTimer); sirenTimer = null; };
+      el.querySelector(&#x27;#ackbtn&#x27;).onclick = () =&gt; { const x = alerts.find((y) =&gt; y.id === a.id); if (x) acknowledge(x); el.hidden = true; stopSiren(); };
     }
     $(&#x27;tk-time&#x27;).textContent = &#x27;Alarm sent &#x27; + hm(a.confirmedAt || a.createdAt) + &#x27; · &#x27; + dur(Date.now() - (a.confirmedAt || a.createdAt)) + &#x27; ago&#x27;;
-    if (!sirenTimer) { sirenBurst(); sirenTimer = setInterval(sirenBurst, 1000); }
+    if (!sirenTimer) { sirenStart = Date.now(); sirenLoop(); }
     try { if (navigator.vibrate) navigator.vibrate([400, 200, 400]); } catch (e) {}
   }
 
@@ -1786,6 +1829,7 @@ window.ACCTS_CONFIG = {
   earlySignOnMin: 60,   // people can start a shift up to this long before it begins
   lateFinishHours: 6,   // after the shift ends, a team can keep recording times on a running job for this long
   alertRedAfterMin: 3,  // dashboard turns red if an alarm isn&#x27;t acknowledged within this time
+  alarmSound: &#x27;rising&#x27;, // in-app alarm: &#x27;rising&#x27; (rising siren) or &#x27;pulse520&#x27; (low 520 Hz pulses)
 };
 &lt;/script&gt;
 &lt;script&gt;// Shared by the phone app (index.html) and the team lead dashboard (lead.html).
@@ -1941,6 +1985,29 @@ window.ACCTS_CONFIG = {
   const alertsCol = () =&gt; db.collection(&#x27;alerts&#x27;);
   const onDuty = (d, now = Date.now()) =&gt; d &amp;&amp; d.until &gt; now;
 
+  // ---------- alarm sound ----------
+  // Low-pitched square waves woke sleepers far better than high-pitched beeps in Bruck &amp; Thomas&#x27;s studies,
+  // so both sounds use them. &#x27;rising&#x27;: a siren sweeping up 400→900 Hz over 1.6 s, every 2 s.
+  // &#x27;pulse520&#x27;: their 520 Hz three-pulse pattern (0.5 s on, 0.5 s off, three times, then 1.5 s quiet).
+  // level 0–1 sets the volume; callers build it up over the first few seconds (fire-station &quot;ramp-up&quot;).
+  // Plays one cycle and returns its length in seconds.
+  function alarmCycle(ctx, style, level) {
+    const t0 = ctx.currentTime + 0.02; const peak = 0.4 * Math.max(0.05, Math.min(1, level));
+    const tone = (f0, f1, start, len) =&gt; {
+      const o = ctx.createOscillator(), g = ctx.createGain();
+      o.type = &#x27;square&#x27;;
+      o.frequency.setValueAtTime(f0, t0 + start);
+      if (f1 !== f0) o.frequency.exponentialRampToValueAtTime(f1, t0 + start + len);
+      g.gain.setValueAtTime(0.0001, t0 + start); g.gain.exponentialRampToValueAtTime(peak, t0 + start + 0.04);
+      g.gain.setValueAtTime(peak, t0 + start + len - 0.05); g.gain.exponentialRampToValueAtTime(0.0001, t0 + start + len);
+      o.connect(g); g.connect(ctx.destination); o.start(t0 + start); o.stop(t0 + start + len + 0.02);
+    };
+    if (style === &#x27;pulse520&#x27;) { tone(520, 520, 0, 0.5); tone(520, 520, 1, 0.5); tone(520, 520, 2, 0.5); return 4; }
+    tone(400, 900, 0, 1.6); return 2;
+  }
+  // Volume for an alarm that started at `since`: from 35% up to full over 4 seconds.
+  const alarmLevel = (since) =&gt; Math.min(1, 0.35 + 0.65 * (Date.now() - since) / 4000);
+
   // Keep the app up to date. When a new version of the offline helper takes over, reload the page so the new
   // version shows, but wait while someone is busy (typing, a form open, an alarm on screen). Also check for a new
   // version whenever the app comes back on screen.
@@ -1973,7 +2040,7 @@ window.ACCTS_CONFIG = {
   window.ACCTS = {
     CFG, STAGES, INTERVALS, NAME, AUTO, TEAMS, TEAM, pad, hm, hms, day, dur, gap, teamName, esc,
     shiftWindow, nextStart, lateMs, stageTime, resolve, latest, nextStage, intervals, jobStart, isActive, teamStatus,
-    initFirebase, watchForUpdates, leadEmail, isLead, call, teamDoc, jobsCol, dutyCol, alertsCol, onDuty, finishJob,
+    initFirebase, watchForUpdates, alarmCycle, alarmLevel, leadEmail, isLead, call, teamDoc, jobsCol, dutyCol, alertsCol, onDuty, finishJob,
   };
 })();
 &lt;/script&gt;&lt;script&gt;(() =&gt; { const A = window.ACCTS, H = window.parent.__ACCTS_HUB; const on = [&#x27;d1022a&#x27;, &#x27;d1022b&#x27;, &#x27;d1022c&#x27;, &#x27;n2008&#x27;];
@@ -2288,24 +2355,20 @@ window.ACCTS_CONFIG = {
   }
   // ---------- confirmed-job alarm: full screen, sounding until acknowledged ----------
   // iPhones only let a web app make sound after a tap, so any tap in the app arms the alarm sound.
-  let audio = null, sirenTimer = null;
+  let audio = null, sirenTimer = null, sirenStart = 0;
   const armAudio = () =&gt; { try { if (!audio) audio = new (window.AudioContext || window.webkitAudioContext)(); if (audio.state === &#x27;suspended&#x27;) audio.resume(); } catch (e) {} };
   document.addEventListener(&#x27;pointerdown&#x27;, armAudio, true);
-  function sirenBurst() {
-    if (!audio || audio.state !== &#x27;running&#x27; || window.ACCTS_NO_APP_SIREN) return;
-    const t0 = audio.currentTime;
-    for (let i = 0; i &lt; 4; i++) { // two-tone, like an emergency vehicle
-      const o = audio.createOscillator(), g = audio.createGain();
-      o.type = &#x27;square&#x27;; o.frequency.value = i % 2 ? 740 : 988; o.connect(g); g.connect(audio.destination);
-      g.gain.setValueAtTime(0.0001, t0 + i * 0.25); g.gain.exponentialRampToValueAtTime(0.3, t0 + i * 0.25 + 0.02);
-      g.gain.setValueAtTime(0.3, t0 + i * 0.25 + 0.2); g.gain.exponentialRampToValueAtTime(0.0001, t0 + i * 0.25 + 0.24);
-      o.start(t0 + i * 0.25); o.stop(t0 + i * 0.25 + 0.25);
-    }
+  // Sounds cycle after cycle while the alarm is on screen, building up to full volume over the first 4 seconds.
+  function sirenLoop() {
+    let len = 2;
+    if (audio &amp;&amp; audio.state === &#x27;running&#x27; &amp;&amp; !window.ACCTS_NO_APP_SIREN) len = A.alarmCycle(audio, A.CFG.alarmSound || &#x27;rising&#x27;, A.alarmLevel(sirenStart));
+    sirenTimer = setTimeout(sirenLoop, len * 1000);
   }
+  const stopSiren = () =&gt; { clearTimeout(sirenTimer); sirenTimer = null; };
   const ringing = () =&gt; { const a = alerts[0]; return a &amp;&amp; a.status === &#x27;active&#x27; &amp;&amp; a.targets &amp;&amp; a.targets[uid] &amp;&amp; !(a.acks &amp;&amp; a.acks[uid]) &amp;&amp; working() ? a : null; };
   function paintTakeover() {
     const a = ringing(); const el = $(&#x27;takeover&#x27;);
-    if (!a) { el.hidden = true; el.innerHTML = &#x27;&#x27;; clearInterval(sirenTimer); sirenTimer = null; return; }
+    if (!a) { el.hidden = true; el.innerHTML = &#x27;&#x27;; stopSiren(); return; }
     if (el.hidden || el.dataset.alert !== a.id) {
       el.dataset.alert = a.id;
       el.innerHTML = `&lt;div class=&quot;tk-in&quot;&gt;&lt;b&gt;NEW JOB&lt;/b&gt;&lt;span class=&quot;tk-team&quot;&gt;${esc(A.teamName(a.team))}&lt;/span&gt;
@@ -2313,10 +2376,10 @@ window.ACCTS_CONFIG = {
         &lt;button class=&quot;tk-ack&quot; id=&quot;ackbtn&quot; data-alert=&quot;${a.id}&quot;&gt;ACKNOWLEDGE&lt;/button&gt;
         &lt;span class=&quot;tk-hint&quot;&gt;Tap to acknowledge. The alarm keeps sounding until you do.&lt;/span&gt;&lt;/div&gt;`;
       el.hidden = false;
-      el.querySelector(&#x27;#ackbtn&#x27;).onclick = () =&gt; { const x = alerts.find((y) =&gt; y.id === a.id); if (x) acknowledge(x); el.hidden = true; clearInterval(sirenTimer); sirenTimer = null; };
+      el.querySelector(&#x27;#ackbtn&#x27;).onclick = () =&gt; { const x = alerts.find((y) =&gt; y.id === a.id); if (x) acknowledge(x); el.hidden = true; stopSiren(); };
     }
     $(&#x27;tk-time&#x27;).textContent = &#x27;Alarm sent &#x27; + hm(a.confirmedAt || a.createdAt) + &#x27; · &#x27; + dur(Date.now() - (a.confirmedAt || a.createdAt)) + &#x27; ago&#x27;;
-    if (!sirenTimer) { sirenBurst(); sirenTimer = setInterval(sirenBurst, 1000); }
+    if (!sirenTimer) { sirenStart = Date.now(); sirenLoop(); }
     try { if (navigator.vibrate) navigator.vibrate([400, 200, 400]); } catch (e) {}
   }
 
@@ -2483,6 +2546,13 @@ window.ACCTS_CONFIG = {
           <li>Finish the job, or tap <b>End my shift</b> to see the sign-on screen.</li>
         </ol>
         <p>Click the dashboard once to allow its chime. Turn your sound on to hear the phone alarm.</p>
+        <div class="sounds">
+          <b>Alarm sound</b>
+          <label><input type="radio" name="snd" value="rising" checked> Rising siren: low pitch sweeping up, repeating</label>
+          <label><input type="radio" name="snd" value="pulse520"> Low 520 Hz pulses: three beats, then a pause</label>
+          <div><button class="reset" data-hear="rising">Hear rising siren</button> <button class="reset" data-hear="pulse520">Hear 520 Hz pulses</button></div>
+          <span>Both build up to full volume over 4 seconds. Low-pitched square waves woke sleepers best in published studies.</span>
+        </div>
         <button class="reset" id="reset">Reset demo</button>
       </div>
       <div class="log">
@@ -5276,6 +5346,7 @@ window.ACCTS_CONFIG = {
   earlySignOnMin: 60,   // people can start a shift up to this long before it begins
   lateFinishHours: 6,   // after the shift ends, a team can keep recording times on a running job for this long
   alertRedAfterMin: 3,  // dashboard turns red if an alarm isn&#x27;t acknowledged within this time
+  alarmSound: &#x27;rising&#x27;, // in-app alarm: &#x27;rising&#x27; (rising siren) or &#x27;pulse520&#x27; (low 520 Hz pulses)
 };
 &lt;/script&gt;
 &lt;script&gt;// Shared by the phone app (index.html) and the team lead dashboard (lead.html).
@@ -5431,6 +5502,29 @@ window.ACCTS_CONFIG = {
   const alertsCol = () =&gt; db.collection(&#x27;alerts&#x27;);
   const onDuty = (d, now = Date.now()) =&gt; d &amp;&amp; d.until &gt; now;
 
+  // ---------- alarm sound ----------
+  // Low-pitched square waves woke sleepers far better than high-pitched beeps in Bruck &amp; Thomas&#x27;s studies,
+  // so both sounds use them. &#x27;rising&#x27;: a siren sweeping up 400→900 Hz over 1.6 s, every 2 s.
+  // &#x27;pulse520&#x27;: their 520 Hz three-pulse pattern (0.5 s on, 0.5 s off, three times, then 1.5 s quiet).
+  // level 0–1 sets the volume; callers build it up over the first few seconds (fire-station &quot;ramp-up&quot;).
+  // Plays one cycle and returns its length in seconds.
+  function alarmCycle(ctx, style, level) {
+    const t0 = ctx.currentTime + 0.02; const peak = 0.4 * Math.max(0.05, Math.min(1, level));
+    const tone = (f0, f1, start, len) =&gt; {
+      const o = ctx.createOscillator(), g = ctx.createGain();
+      o.type = &#x27;square&#x27;;
+      o.frequency.setValueAtTime(f0, t0 + start);
+      if (f1 !== f0) o.frequency.exponentialRampToValueAtTime(f1, t0 + start + len);
+      g.gain.setValueAtTime(0.0001, t0 + start); g.gain.exponentialRampToValueAtTime(peak, t0 + start + 0.04);
+      g.gain.setValueAtTime(peak, t0 + start + len - 0.05); g.gain.exponentialRampToValueAtTime(0.0001, t0 + start + len);
+      o.connect(g); g.connect(ctx.destination); o.start(t0 + start); o.stop(t0 + start + len + 0.02);
+    };
+    if (style === &#x27;pulse520&#x27;) { tone(520, 520, 0, 0.5); tone(520, 520, 1, 0.5); tone(520, 520, 2, 0.5); return 4; }
+    tone(400, 900, 0, 1.6); return 2;
+  }
+  // Volume for an alarm that started at `since`: from 35% up to full over 4 seconds.
+  const alarmLevel = (since) =&gt; Math.min(1, 0.35 + 0.65 * (Date.now() - since) / 4000);
+
   // Keep the app up to date. When a new version of the offline helper takes over, reload the page so the new
   // version shows, but wait while someone is busy (typing, a form open, an alarm on screen). Also check for a new
   // version whenever the app comes back on screen.
@@ -5463,7 +5557,7 @@ window.ACCTS_CONFIG = {
   window.ACCTS = {
     CFG, STAGES, INTERVALS, NAME, AUTO, TEAMS, TEAM, pad, hm, hms, day, dur, gap, teamName, esc,
     shiftWindow, nextStart, lateMs, stageTime, resolve, latest, nextStage, intervals, jobStart, isActive, teamStatus,
-    initFirebase, watchForUpdates, leadEmail, isLead, call, teamDoc, jobsCol, dutyCol, alertsCol, onDuty, finishJob,
+    initFirebase, watchForUpdates, alarmCycle, alarmLevel, leadEmail, isLead, call, teamDoc, jobsCol, dutyCol, alertsCol, onDuty, finishJob,
   };
 })();
 &lt;/script&gt;&lt;script&gt;(() =&gt; { const A = window.ACCTS, H = window.parent.__ACCTS_HUB; const on = [&#x27;d1022a&#x27;, &#x27;d1022b&#x27;, &#x27;d1022c&#x27;, &#x27;n2008&#x27;];

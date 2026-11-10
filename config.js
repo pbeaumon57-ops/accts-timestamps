@@ -18,4 +18,5 @@ window.ACCTS_CONFIG = {
   earlySignOnMin: 60,   // people can start a shift up to this long before it begins
   lateFinishHours: 6,   // after the shift ends, a team can keep recording times on a running job for this long
   alertRedAfterMin: 3,  // dashboard turns red if an alarm isn't acknowledged within this time
+  alarmSound: 'rising', // in-app alarm: 'rising' (rising siren) or 'pulse520' (low 520 Hz pulses)
 };

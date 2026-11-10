@@ -1,6 +1,6 @@
 // Offline support. With signal, pages and files always load fresh (so updates show straight away) and a copy is
 // saved on the phone. With no signal, or a very slow one, the saved copy is used instead.
-const C = 'accts-v11';
+const C = 'accts-v12';
 const FILES = ['./', 'index.html', 'lead.html', 'style.css', 'config.js', 'common.js', 'manifest.json',
   'icon-180.png', 'icon-192.png', 'icon-512.png',
   'vendor/firebase-app-compat.js', 'vendor/firebase-auth-compat.js', 'vendor/firebase-firestore-compat.js', 'vendor/firebase-functions-compat.js', 'vendor/jsQR.js', 'vendor/qrcode.js', 'functions/profiles.js'];

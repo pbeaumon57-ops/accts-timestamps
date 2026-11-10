@@ -346,24 +346,20 @@
   }
   // ---------- confirmed-job alarm: full screen, sounding until acknowledged ----------
   // iPhones only let a web app make sound after a tap, so any tap in the app arms the alarm sound.
-  let audio = null, sirenTimer = null;
+  let audio = null, sirenTimer = null, sirenStart = 0;
   const armAudio = () => { try { if (!audio) audio = new (window.AudioContext || window.webkitAudioContext)(); if (audio.state === 'suspended') audio.resume(); } catch (e) {} };
   document.addEventListener('pointerdown', armAudio, true);
-  function sirenBurst() {
-    if (!audio || audio.state !== 'running' || window.ACCTS_NO_APP_SIREN) return;
-    const t0 = audio.currentTime;
-    for (let i = 0; i < 4; i++) { // two-tone, like an emergency vehicle
-      const o = audio.createOscillator(), g = audio.createGain();
-      o.type = 'square'; o.frequency.value = i % 2 ? 740 : 988; o.connect(g); g.connect(audio.destination);
-      g.gain.setValueAtTime(0.0001, t0 + i * 0.25); g.gain.exponentialRampToValueAtTime(0.3, t0 + i * 0.25 + 0.02);
-      g.gain.setValueAtTime(0.3, t0 + i * 0.25 + 0.2); g.gain.exponentialRampToValueAtTime(0.0001, t0 + i * 0.25 + 0.24);
-      o.start(t0 + i * 0.25); o.stop(t0 + i * 0.25 + 0.25);
-    }
+  // Sounds cycle after cycle while the alarm is on screen, building up to full volume over the first 4 seconds.
+  function sirenLoop() {
+    let len = 2;
+    if (audio && audio.state === 'running' && !window.ACCTS_NO_APP_SIREN) len = A.alarmCycle(audio, A.CFG.alarmSound || 'rising', A.alarmLevel(sirenStart));
+    sirenTimer = setTimeout(sirenLoop, len * 1000);
   }
+  const stopSiren = () => { clearTimeout(sirenTimer); sirenTimer = null; };
   const ringing = () => { const a = alerts[0]; return a && a.status === 'active' && a.targets && a.targets[uid] && !(a.acks && a.acks[uid]) && working() ? a : null; };
   function paintTakeover() {
     const a = ringing(); const el = $('takeover');
-    if (!a) { el.hidden = true; el.innerHTML = ''; clearInterval(sirenTimer); sirenTimer = null; return; }
+    if (!a) { el.hidden = true; el.innerHTML = ''; stopSiren(); return; }
     if (el.hidden || el.dataset.alert !== a.id) {
       el.dataset.alert = a.id;
       el.innerHTML = `<div class="tk-in"><b>NEW JOB</b><span class="tk-team">${esc(A.teamName(a.team))}</span>
@@ -371,10 +367,10 @@
         <button class="tk-ack" id="ackbtn" data-alert="${a.id}">ACKNOWLEDGE</button>
         <span class="tk-hint">Tap to acknowledge. The alarm keeps sounding until you do.</span></div>`;
       el.hidden = false;
-      el.querySelector('#ackbtn').onclick = () => { const x = alerts.find((y) => y.id === a.id); if (x) acknowledge(x); el.hidden = true; clearInterval(sirenTimer); sirenTimer = null; };
+      el.querySelector('#ackbtn').onclick = () => { const x = alerts.find((y) => y.id === a.id); if (x) acknowledge(x); el.hidden = true; stopSiren(); };
     }
     $('tk-time').textContent = 'Alarm sent ' + hm(a.confirmedAt || a.createdAt) + ' · ' + dur(Date.now() - (a.confirmedAt || a.createdAt)) + ' ago';
-    if (!sirenTimer) { sirenBurst(); sirenTimer = setInterval(sirenBurst, 1000); }
+    if (!sirenTimer) { sirenStart = Date.now(); sirenLoop(); }
     try { if (navigator.vibrate) navigator.vibrate([400, 200, 400]); } catch (e) {}
   }
 
